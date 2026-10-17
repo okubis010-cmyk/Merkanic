@@ -24,6 +24,12 @@ Beheerder (Ori), Monteur, Klant
 - Klantweergave read-only (+ opmerking plaatsen), interne notities verborgen
 - Tested: iteration_1 (all core flows pass); fixes applied for lockout, volgnummer, event text, mobile overflow
 
+## Implemented (2026-10-17, iteration 2-3)
+- Werkfoto's per werkorder (Emergent object storage, auth-served, soft delete, magic-byte check)
+- Automatic klantmail when status -> Gereed (to vehicle owner_email), internal log event
+- Public landing page at / (hero, APK-check via /api/public/apk, klantenportaal section); unknown routes -> /
+- Notification + reply-to email now info@merkanic.nl
+
 ## Backlog
 - P1: Foto's bij werkorders (object storage), facturen, afspraken plannen
 - P1: Klant e-mail bij status "Gereed"

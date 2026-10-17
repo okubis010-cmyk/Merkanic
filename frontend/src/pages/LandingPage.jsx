@@ -69,7 +69,7 @@ const ApkCheck = () => {
   };
   return (
     <section id="apk" className="bg-white border-y border-slate-200">
-      <div className="mx-auto max-w-7xl px-5 sm:px-8 py-20 grid lg:grid-cols-2 gap-12 items-center">
+      <div className="mx-auto max-w-7xl px-5 sm:px-8 py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         <div>
           <div className="eyebrow mb-3">02 / Kentekencheck</div>
           <div className="text-xs font-semibold tracking-[0.2em] uppercase text-slate-500 mb-4">Direct inzicht</div>
@@ -113,7 +113,7 @@ const Portaal = () => {
   const { user } = useAuth();
   return (
     <section id="portaal" className="mx-auto max-w-7xl px-5 sm:px-8 py-20">
-      <div className="grid lg:grid-cols-2 gap-10 mb-12">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-12">
         <div>
           <div className="eyebrow mb-3">03 / Klantenportaal</div>
           <div className="text-xs font-semibold tracking-[0.2em] uppercase text-slate-500 mb-4">Inloggen · Auto & service</div>

@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 3: public landing page, APK-check, routing and email config. Backend: 7/7 pytest passed (public APK endpoint without auth returns exactly kenteken/merk/model/apk_vervaldatum; GZ123X -> Renault Captur 21-06-2027; ZZ999ZZ -> 404; too-long plate -> 400; /api/rdw still requires auth; .env NOTIFY_EMAIL and EMAIL_REPLY_TO = info@merkanic.nl; admin login sets an httpOnly cookie). Frontend: / shows landing (no redirect) with hero, APK section, Klantenportaal section, footer. APK result and error work. All nav links work: Inloggen/portaal-login go to /login, Registreren goes to /login?tab=register with the register tab active ('Account aanmaken.'), login-home-link goes to /, /abc goes to /, and /portaal while logged out goes to /login. Logged-in admin: lands on Werkorders, portal logo goes to /, landing shows 'Naar portaal' on both buttons and hides Registreren, and /login redirects to /portaal. One bug found and fixed: 15px horizontal overflow on mobile at 390px in the APK section.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "/api/public/apk/{kenteken}", "issue": "Public, unauthenticated RDW proxy has no rate limiting (abuse vector, optional hardening)"}
+  ]},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "LandingPage ApkCheck section", "issue": "FIXED: horizontal overflow on 390px mobile (scrollWidth 405). The grid had no mobile column template, so the auto column grew to the input's intrinsic width (size=20 at text-xl with tracking-widest). Added grid-cols-1 to the APK and Portaal section grids; scrollWidth is now 390 and desktop is unaffected.", "selector": "#apk > div", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Landing APK form", "issues": ["Submitting an empty kenteken does nothing silently (no hint). Minor UX gap."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_public_apk.py", "/app/test_reports/pytest/pytest_iter3.xml"],
+  "action_items": ["Optional: add rate limiting on /api/public/apk", "Optional: show validation hint for empty kenteken"],
+  "critical_code_review_comments": [
+    "PortalLayout logo uses <a href='/'> (full page reload) instead of a react-router Link. It works, but it reloads the app.",
+    "Old regression suites (test_merkanic_api.py, test_photos_gereed.py) read REACT_APP_BACKEND_URL from os.environ and fail at collection unless the env var is exported. Not rerun this iteration, to avoid registration/Gereed emails going to the real info@merkanic.nl."
+  ],
+  "updated_files": ["/app/frontend/src/pages/LandingPage.jsx", "/app/backend/tests/test_public_apk.py"],
+  "success_rate": {"backend": "100%", "frontend": "100% (after mobile overflow fix)"},
+  "test_credentials": "ori@merkanic.nl / Merkanic1! (beheerder)",
+  "seed_data_creation": "None. No users registered, no emails triggered, S597PJ untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Landing at /, public APK at /api/public/apk/{k}. Use GZ123X (Renault Captur, 21-06-2027) as a known plate and ZZ999ZZ as a not-found plate. Run test_public_apk.py (it reads frontend/.env directly). For the older suites, export REACT_APP_BACKEND_URL first; they may send emails."
+}
