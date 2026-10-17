@@ -17,6 +17,10 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 import hmac
+import ssl
+import smtplib
+from email.message import EmailMessage
+from email.utils import formataddr, make_msgid
 import bcrypt
 import jwt
 import asyncio
@@ -43,6 +47,11 @@ EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ['EMERGENT_EMAIL_KEY']
 EMAIL_FROM_NAME = os.environ['EMAIL_FROM_NAME']
 EMAIL_REPLY_TO = os.environ.get('EMAIL_REPLY_TO')
+SMTP_HOST = os.environ['SMTP_HOST']
+SMTP_PORT = int(os.environ['SMTP_PORT'])
+SMTP_USER = os.environ['SMTP_USER']
+SMTP_FROM = os.environ['SMTP_FROM']
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 WEBHOOK_CRON_SECRET = os.environ['WEBHOOK_CRON_SECRET']
 APK_REMINDER_DAYS = 30
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
@@ -256,8 +265,35 @@ def _assert_safe_email(subject: str, html: str) -> None:
                 raise ValueError(f"Anchor text {m.group(1)!r} != real link host {real!r} (G3)")
 
 
+def _send_smtp(to: str, subject: str, html: str) -> str:
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((EMAIL_FROM_NAME, SMTP_FROM))
+    msg["To"] = to
+    msg["Reply-To"] = EMAIL_REPLY_TO or SMTP_FROM
+    msg["Message-ID"] = make_msgid(domain=SMTP_FROM.split("@")[-1])
+    msg.set_content("Open deze e-mail in een programma dat HTML ondersteunt.")
+    msg.add_alternative(html, subtype="html")
+    ctx = ssl.create_default_context()
+    if SMTP_PORT == 465:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=20) as s:
+            s.login(SMTP_USER, SMTP_PASSWORD)
+            s.send_message(msg)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+            s.starttls(context=ctx)
+            s.login(SMTP_USER, SMTP_PASSWORD)
+            s.send_message(msg)
+    return msg["Message-ID"]
+
+
 async def send_email(*, to: str, subject: str, html: str) -> Optional[str]:
     _assert_safe_email(subject, html)
+    if SMTP_PASSWORD:
+        try:
+            return await asyncio.to_thread(_send_smtp, to, subject, html)
+        except Exception as e:
+            logger.warning(f"SMTP send failed, falling back to managed email: {e}")
     payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
     if EMAIL_REPLY_TO:
         payload["contact_email"] = EMAIL_REPLY_TO
