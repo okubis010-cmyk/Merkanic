@@ -1,0 +1,40 @@
+{
+  "summary": "APK-herinnering feature tested end-to-end. Backend: new pytest suite test_apk_reminders.py (11 tests) passes on clean run. Checked: cron auth (401 with no/wrong/non-Bearer secret), accepted + background run with fast ack, X-Webhook-Id duplicate, 0-30 day window including the day-30 boundary, skips for >30 days/expired/no email/apk_reminders_off, no re-send for the same APK date, RDW refresh (GZ123X stored at +12 days was corrected to 21-06-2027 and not mailed), overview for staff (monteur ok, klant 403, anon 401), run RBAC (monteur/klant 403), PATCH apk_reminders_off. Frontend: panel rows/status, 'Nu controleren' toast ('0 herinnering(en) verstuurd'), edit dialog switch saves apk_reminders_off=true to the DB, no horizontal overflow at 390px on voertuigen and dashboard. Regression smoke for landing/login/dashboard passed. A race condition was found: on the first test run, overlapping cron and manual runs sent TESTAPK2 twice. Email rate limit (429) was also hit.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "run_apk_reminders (cron + /api/apk-reminders/run)", "issue": "RACE / DOUBLE SEND (reproduced): a cron background run and a manual 'Nu controleren' run overlapping in time both mailed TESTAPK2 (backend log 16:05:12 and 16:05:13, two 202 sends; cron log sent=[TESTAPK2], manual log sent=[TESTAPK2, TESTAPK7]). Cause: apk_reminder_for is only set after send_email returns, so nothing claims the vehicle atomically. Fix: claim first with find_one_and_update({kenteken, apk_reminder_for: {$ne: date}}, {$set: {apk_reminder_for: date, apk_reminder_claimed_at}}), send, and $unset on failure. Or add a global run lock (a cron_runs-style doc with a TTL)."},
+      {"endpoint": "run_apk_reminders", "issue": "No throttling or retry on email 429. During testing the email API returned 429 'email rate limit exceeded', and the run quietly counted those vehicles as checked but not sent or skipped. They get retried the next day because apk_reminder_for stays unset, which is not too bad. But with many due vehicles on day one, most mails will fail. Suggest a short sleep between sends, retry/backoff on 429, and a 'failed' list in the result/log so the toast and admin can see failures."},
+      {"endpoint": "run_apk_reminders / apk_overview", "issue": "'today' uses the UTC date, not Europe/Amsterdam. Off by one only between 00:00 and 01:00/02:00 NL time; the cron runs at 08:00 NL, so the impact is negligible."},
+      {"endpoint": "run_apk_reminders", "issue": "RDW is called sequentially, twice per in-window vehicle (2 HTTP calls). With many vehicles the synchronous POST /api/apk-reminders/run can take a long time and risks an ingress timeout. Consider running it in the background, or using asyncio.gather with a limit."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ApkReminders panel", "issues": ["When a vehicle has no email AND reminders off, the status shows only 'Geen e-mail' (fine). Toast only shows the sent count; it should also show failures once the backend returns them."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_apk_reminders.py", "/app/test_reports/pytest/pytest_apk.xml"],
+  "action_items": [
+    "Make the reminder send idempotent under concurrency: atomically claim the vehicle before send_email, or add a run lock (double send reproduced)",
+    "Handle email 429: throttle and retry, and report failed sends in the run result and toast",
+    "Optional: compute 'today' in Europe/Amsterdam; make the manual run async or parallelise RDW calls with a limit",
+    "Verify that /app/.emergent/crons.yml uses the placeholder syntax the platform expects: the file has '{{BASE_URL}}' (double braces), the review request says '{BASE_URL}'. All other fields are present (name, description, cron '0 8 * * *', timezone Europe/Amsterdam, endpoint, method POST, enabled)"
+  ],
+  "critical_code_review_comments": [
+    "Race condition between cron and manual runs (see above)",
+    "send_email failures are not logged per vehicle in apk_reminder_log (only in the server log)",
+    "Cron endpoint: hmac.compare_digest, X-Webhook-Id dedupe through _id unique insert, and the 2xx ack with BackgroundTasks are all correct",
+    "server.py is ~1190 lines; it should be split into modules (apk, vehicles, workorders, appointments, auth)"
+  ],
+  "updated_files": ["/app/backend/tests/test_apk_reminders.py"],
+  "success_rate": {"backend": "100% (11/11 on clean run; 1 concurrency bug found)", "frontend": "100%"},
+  "test_credentials": "ori@merkanic.nl / Merkanic1! (beheerder). Test monteur/klant are seeded and removed by the test fixture.",
+  "seed_data_creation": "Seeded test vehicles TESTAPK2-9 and GZ123X plus users test_apk_monteur/klant directly in mongo. All removed afterwards, along with TESTAPK1, apk_reminder_log and cron_runs. Only S597PJ remains (untouched; APK 17-03-2027, outside the window).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run test_apk_reminders.py alone; it sends 2 real emails to delivered@resend.dev. The email API rate limit (429) is easy to hit: wait about 90s between runs, otherwise the send assertions fail. Polling for the cron log must filter at > start, because a stale log entry gives false results. Check that S597PJ is outside the 0-30 day window before running.",
+  "rca of the issue": "Double send: run_apk_reminders reads the vehicles, calls RDW (slow, ~1s per vehicle), then calls send_email and only afterwards sets apk_reminder_for. Two runs started within that window both see apk_reminder_for unset and both send. Repro: seed a due vehicle, POST /api/cron/apk-reminders, and within ~1s POST /api/apk-reminders/run. Mitigation: atomic claim before sending, or a run-level lock."
+}

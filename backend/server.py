@@ -1071,7 +1071,7 @@ def apk_email_html(v: dict, days: int) -> str:
 
 async def run_apk_reminders(trigger: str) -> dict:
     today = datetime.now(timezone.utc).date()
-    sent, checked, skipped = [], 0, 0
+    sent, failed, checked, skipped = [], [], 0, 0
     vs = await db.vehicles.find({"owner_email": {"$nin": ["", None]}, "apk_reminders_off": {"$ne": True}}, {"_id": 0}).to_list(5000)
     for v in vs:
         d = parse_nl_date(v.get("apk_vervaldatum"))
@@ -1087,15 +1087,30 @@ async def run_apk_reminders(trigger: str) -> dict:
             v["apk_vervaldatum"] = fresh
             d = parse_nl_date(fresh)
         days = (d - today).days if d else -1
-        if not (0 <= days <= APK_REMINDER_DAYS) or v.get("apk_reminder_for") == v["apk_vervaldatum"]:
+        if not (0 <= days <= APK_REMINDER_DAYS):
             skipped += 1
             continue
-        if await send_email(to=v["owner_email"], subject=f"APK-herinnering {v['kenteken']}: verloopt op {v['apk_vervaldatum']}",
-                            html=apk_email_html(v, days)):
-            await db.vehicles.update_one({"kenteken": v["kenteken"]}, {"$set": {
-                "apk_reminder_for": v["apk_vervaldatum"], "apk_reminder_sent_at": now_iso()}})
+        claim = await db.vehicles.find_one_and_update(
+            {"kenteken": v["kenteken"], "apk_reminder_for": {"$ne": v["apk_vervaldatum"]}},
+            {"$set": {"apk_reminder_for": v["apk_vervaldatum"]}})
+        if not claim:
+            skipped += 1
+            continue
+        ok = None
+        for attempt in range(3):
+            ok = await send_email(to=v["owner_email"], subject=f"APK-herinnering {v['kenteken']}: verloopt op {v['apk_vervaldatum']}",
+                                  html=apk_email_html(v, days))
+            if ok:
+                break
+            await asyncio.sleep(2 * (attempt + 1))
+        if ok:
+            await db.vehicles.update_one({"kenteken": v["kenteken"]}, {"$set": {"apk_reminder_sent_at": now_iso()}})
             sent.append(v["kenteken"])
-    result = {"trigger": trigger, "checked": checked, "skipped": skipped, "sent": sent, "at": now_iso()}
+        else:
+            await db.vehicles.update_one({"kenteken": v["kenteken"]}, {"$unset": {"apk_reminder_for": ""}})
+            failed.append(v["kenteken"])
+        await asyncio.sleep(0.6)
+    result = {"trigger": trigger, "checked": checked, "skipped": skipped, "sent": sent, "failed": failed, "at": now_iso()}
     await db.apk_reminder_log.insert_one({**result})
     logger.info(f"APK reminders: {result}")
     return result

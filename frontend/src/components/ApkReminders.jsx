@@ -23,7 +23,7 @@ export const ApkReminders = () => {
   useEffect(() => { load(); }, []);
   const run = async () => {
     setBusy(true);
-    try { const { data: res } = await api.post("/apk-reminders/run"); toast.success(`${res.sent.length} herinnering(en) verstuurd`); load(); } catch (e) { toast.error(errMsg(e)); }
+    try { const { data: res } = await api.post("/apk-reminders/run"); toast.success(`${res.sent.length} herinnering(en) verstuurd${res.failed?.length ? `, ${res.failed.length} mislukt (morgen opnieuw)` : ""}`); load(); } catch (e) { toast.error(errMsg(e)); }
     setBusy(false);
   };
   if (!data) return null;
