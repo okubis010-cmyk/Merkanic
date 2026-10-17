@@ -4,6 +4,7 @@ import { ArrowRight, Search, Loader2, Wrench, Camera, FileText, CalendarCheck } 
 import { Plate } from "@/components/Plate";
 import { useAuth } from "@/context/AuthContext";
 import { api, errMsg } from "@/lib/api";
+import { AppointmentForm } from "@/components/AppointmentForm";
 
 const NavBar = () => {
   const { user } = useAuth();
@@ -13,6 +14,7 @@ const NavBar = () => {
         <a href="#top" data-testid="landing-logo" className="font-display text-xl font-extrabold tracking-tight">MERKANIC<span className="text-[#C0474A]">.</span></a>
         <nav className="flex items-center gap-5 text-sm">
           <a href="#apk" data-testid="landing-nav-apk" className="hidden sm:inline text-slate-600 hover:text-slate-900">APK-check</a>
+          <a href="#afspraak" data-testid="landing-nav-afspraak" className="hidden sm:inline text-slate-600 hover:text-slate-900">Afspraak</a>
           <a href="#portaal" data-testid="landing-nav-portaal" className="hidden sm:inline text-slate-600 hover:text-slate-900">Klantenportaal</a>
           <Link to={user ? "/portaal" : "/login"} data-testid="landing-nav-login" className="bg-slate-900 text-white px-4 py-2 font-semibold hover:bg-[#C0474A] transition-colors">
             {user ? "Naar portaal" : "Inloggen"}
@@ -39,7 +41,7 @@ const Hero = () => (
           <a href="#portaal" data-testid="hero-portaal-button" className="inline-flex items-center gap-2 bg-[#C0474A] text-white px-6 py-3 font-semibold hover:bg-[#A8383B] transition-colors">
             Naar het klantenportaal <ArrowRight className="h-4 w-4" />
           </a>
-          <a href="#apk" data-testid="hero-apk-button" className="inline-flex items-center gap-2 border border-slate-300 px-6 py-3 font-semibold hover:border-slate-900 transition-colors">APK-datum checken</a>
+          <a href="#afspraak" data-testid="hero-afspraak-button" className="inline-flex items-center gap-2 border border-slate-300 px-6 py-3 font-semibold hover:border-slate-900 transition-colors">Afspraak maken</a>
         </div>
       </div>
       <div className="relative fade-up" style={{ animationDelay: "120ms" }}>
@@ -145,6 +147,20 @@ const Portaal = () => {
   );
 };
 
+const Afspraak = () => (
+  <section id="afspraak" className="bg-white border-y border-slate-200">
+    <div className="mx-auto max-w-7xl px-5 sm:px-8 py-20 grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-12">
+      <div>
+        <div className="eyebrow mb-3">04 / Afspraak maken</div>
+        <div className="text-xs font-semibold tracking-[0.2em] uppercase text-slate-500 mb-4">Snel geregeld</div>
+        <h2 className="font-display text-3xl sm:text-4xl font-bold tracking-tight">Plan je beurt. <span className="font-serif-accent font-medium text-[#C0474A]">Wij doen de rest.</span></h2>
+        <p className="mt-4 text-slate-600">Kies de dienst en je voorkeursdatum. We bekijken je aanvraag en bevestigen de afspraak zo snel mogelijk.</p>
+      </div>
+      <div className="border border-slate-200 bg-[#F8FAFC] p-6 sm:p-8"><AppointmentForm /></div>
+    </div>
+  </section>
+);
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#F1F5F9]" data-testid="landing-page">
@@ -152,6 +168,7 @@ export default function LandingPage() {
       <Hero />
       <ApkCheck />
       <Portaal />
+      <Afspraak />
       <footer className="border-t border-slate-200">
         <div className="mx-auto max-w-7xl px-5 sm:px-8 py-8 flex flex-col sm:flex-row justify-between gap-2 text-sm text-slate-500">
           <span>Facturen, onderhoud, foto's en afspraken — helder in je portaal.</span>

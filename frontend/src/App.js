@@ -11,6 +11,7 @@ import VehicleFolderPage from "@/pages/VehicleFolderPage";
 import NewWorkorderPage from "@/pages/NewWorkorderPage";
 import WorkorderDetailPage from "@/pages/WorkorderDetailPage";
 import UsersPage from "@/pages/UsersPage";
+import AppointmentsPage from "@/pages/AppointmentsPage";
 
 const Protected = ({ children, staff, admin }) => {
   const { user, isStaff } = useAuth();
@@ -39,6 +40,7 @@ function App() {
             <Route path="voertuigen/:kenteken" element={<VehicleFolderPage />} />
             <Route path="werkorders/nieuw" element={<Protected staff><NewWorkorderPage /></Protected>} />
             <Route path="werkorders/:id" element={<WorkorderDetailPage />} />
+            <Route path="afspraken" element={<AppointmentsPage />} />
             <Route path="gebruikers" element={<Protected admin><UsersPage /></Protected>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -68,6 +68,11 @@ export default function WorkordersPage() {
           {stats.pending_users} registratie(s) wachten op goedkeuring — bekijk Gebruikers.
         </Link>
       )}
+      {stats?.pending_appointments > 0 && (
+        <Link to="/portaal/afspraken" data-testid="pending-appointments-alert" className="block mb-6 border border-blue-200 bg-blue-50 px-5 py-3 text-sm text-blue-900">
+          {stats.pending_appointments} nieuwe afspraakaanvra(a)g(en) — bekijk Afspraken.
+        </Link>
+      )}
       <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between mb-4">
         <div className="flex flex-wrap gap-2">
           {["", ...STATUSES].map((s) => (

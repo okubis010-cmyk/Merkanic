@@ -23,10 +23,10 @@ const Block = ({ n, title, children }) => (
 export default function NewWorkorderPage() {
   const nav = useNavigate();
   const [params] = useSearchParams();
-  const [vehicle, setVehicle] = useState({ ...EMPTY_V, kenteken: params.get("kenteken") || "" });
+  const [vehicle, setVehicle] = useState({ ...EMPTY_V, kenteken: params.get("kenteken") || "", owner_name: params.get("naam") || "", owner_email: params.get("email") || "", owner_phone: params.get("telefoon") || "" });
   const [templates, setTemplates] = useState([]);
   const [monteurs, setMonteurs] = useState([]);
-  const [f, setF] = useState({ km_stand: "", template: "kleine_beurt", title: "", monteur_id: "", status: "Gepland", planned_date: "", opmerking: "", opmerking_intern: false });
+  const [f, setF] = useState({ km_stand: "", template: params.get("template") || "kleine_beurt", title: "", monteur_id: "", status: "Gepland", planned_date: "", opmerking: params.get("opmerking") || "", opmerking_intern: false });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {

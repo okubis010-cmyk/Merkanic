@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { ClipboardList, FolderOpen, PlusCircle, Users, LogOut, Car } from "lucide-react";
+import { ClipboardList, FolderOpen, PlusCircle, Users, LogOut, Car, CalendarDays } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { ROLE_LABELS } from "@/lib/api";
 
@@ -27,9 +27,13 @@ export default function PortalLayout() {
         { to: "/portaal", icon: ClipboardList, label: "Werkorders", testid: "nav-werkorders-tab" },
         { to: "/portaal/voertuigen", icon: FolderOpen, label: "Voertuigen mappen", testid: "nav-voertuigen-mappen-tab" },
         { to: "/portaal/werkorders/nieuw", icon: PlusCircle, label: "Nieuwe werkorder", testid: "nav-nieuwe-order-tab" },
+        { to: "/portaal/afspraken", icon: CalendarDays, label: "Afspraken", testid: "nav-afspraken-tab" },
         ...(user.role === "beheerder" ? [{ to: "/portaal/gebruikers", icon: Users, label: "Gebruikers", testid: "nav-gebruikersbeheer-tab" }] : []),
       ]
-    : [{ to: "/portaal", icon: Car, label: "Mijn auto's", testid: "nav-klant-portaal-tab" }];
+    : [
+        { to: "/portaal", icon: Car, label: "Mijn auto's", testid: "nav-klant-portaal-tab" },
+        { to: "/portaal/afspraken", icon: CalendarDays, label: "Afspraken", testid: "nav-afspraken-tab" },
+      ];
 
   return (
     <div className="min-h-screen lg:flex">

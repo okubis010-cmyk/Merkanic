@@ -36,6 +36,7 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALG = "HS256"
 APP_URL = os.environ['APP_URL'].rstrip('/')
+APP_ORIGINS = {o.strip().rstrip('/') for o in os.environ['CORS_ORIGINS'].split(',') if o.strip().startswith('https://')} | {APP_URL}
 NOTIFY_EMAIL = os.environ['NOTIFY_EMAIL']
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ['EMERGENT_EMAIL_KEY']
@@ -157,6 +158,21 @@ async def staff_user(u: dict = Depends(current_user)) -> dict:
     return u
 
 
+def base_url(request: Request) -> str:
+    origin = (request.headers.get("origin") or "").rstrip('/')
+    if not origin:
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+        origin = f"https://{host}" if host else ""
+    return origin if origin in APP_ORIGINS else APP_URL
+
+
+async def optional_user(request: Request) -> Optional[dict]:
+    try:
+        return await current_user(request)
+    except HTTPException:
+        return None
+
+
 async def admin_user(u: dict = Depends(current_user)) -> dict:
     if u["role"] != "beheerder":
         raise HTTPException(403, "Alleen voor beheerders")
@@ -255,11 +271,11 @@ async def send_email(*, to: str, subject: str, html: str) -> Optional[str]:
     return None
 
 
-def approval_email_html(user: dict, token: str) -> str:
+def approval_email_html(user: dict, token: str, base: str) -> str:
     btn = ('display:inline-block;padding:12px 18px;margin:4px 6px 4px 0;border-radius:6px;'
            'font-weight:bold;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;')
     links = "".join(
-        f'<a href="{APP_URL}/api/approve/{token}?role={r}" style="{btn}background:{c};color:#ffffff">{label}</a>'
+        f'<a href="{base}/api/approve/{token}?role={r}" style="{btn}background:{c};color:#ffffff">{label}</a>'
         for r, label, c in [("monteur", "Goedkeuren als Monteur", "#C0474A"),
                             ("beheerder", "Goedkeuren als Beheerder", "#0F172A"),
                             ("klant", "Goedkeuren als Klant", "#475569"),
@@ -361,7 +377,7 @@ def set_auth_cookie(resp: Response, token: str):
 
 
 @api.post("/auth/register")
-async def register(body: RegisterIn):
+async def register(body: RegisterIn, request: Request):
     email = body.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Dit e-mailadres is al geregistreerd")
@@ -372,7 +388,7 @@ async def register(body: RegisterIn):
     await db.approval_tokens.insert_one({"token": token, "user_id": user["id"], "used": False,
                                          "expires_at": datetime.now(timezone.utc) + timedelta(days=14)})
     await send_email(to=NOTIFY_EMAIL, subject=f"Nieuwe registratie: {user['name']}",
-                     html=approval_email_html(user, token))
+                     html=approval_email_html(user, token, base_url(request)))
     return {"status": "pending", "message": "Registratie ontvangen. Je account wacht op goedkeuring."}
 
 
@@ -419,7 +435,7 @@ def page(title: str, body: str) -> HTMLResponse:
         '<div style="max-width:520px;margin:64px auto;background:#fff;border:1px solid #E2E8F0;padding:32px">'
         '<p style="font-size:11px;letter-spacing:3px;color:#C0474A;font-weight:bold;margin:0 0 8px">MERKANIC / GEBRUIKERS</p>'
         f'<h1 style="font-size:22px;margin:0 0 16px">{escape(title)}</h1>{body}'
-        f'<p style="margin-top:28px"><a href="{APP_URL}/portaal/gebruikers" style="color:#C0474A">Naar het portaal</a></p>'
+        '<p style="margin-top:28px"><a href="/portaal/gebruikers" style="color:#C0474A">Naar het portaal</a></p>'
         '</div></body></html>')
 
 
@@ -446,7 +462,7 @@ async def approve_page(token: str, role: str):
     action = "afwijzen" if role == "afwijzen" else f"goedkeuren als <strong>{ROLE_LABELS[role]}</strong>"
     return page("Bevestig gebruiker",
                 f'<p>{escape(u["name"])} ({escape(u["email"])}) {action}?</p>'
-                f'<form method="post" action="{APP_URL}/api/approve/{escape(token)}">'
+                f'<form method="post" action="/api/approve/{escape(token)}">'
                 f'<input type="hidden" name="role" value="{escape(role)}">'
                 '<button type="submit" style="background:#C0474A;color:#fff;border:0;padding:12px 20px;font-weight:bold;cursor:pointer">Bevestigen</button>'
                 '</form>')
@@ -687,8 +703,9 @@ async def stats(_: dict = Depends(staff_user)):
     pipeline = [{"$group": {"_id": "$status", "n": {"$sum": 1}}}]
     by = {r["_id"]: r["n"] for r in await db.workorders.aggregate(pipeline).to_list(20)}
     pending = await db.users.count_documents({"status": "pending"})
+    appts = await db.appointments.count_documents({"status": "Aangevraagd"})
     return {"by_status": {s: by.get(s, 0) for s in STATUSES}, "vehicles": await db.vehicles.count_documents({}),
-            "total": sum(by.values()), "pending_users": pending}
+            "total": sum(by.values()), "pending_users": pending, "pending_appointments": appts}
 
 
 @api.post("/workorders")
@@ -743,7 +760,7 @@ async def get_workorder(oid: str, u: dict = Depends(current_user)):
 
 
 @api.patch("/workorders/{oid}")
-async def patch_workorder(oid: str, body: WorkorderPatch, u: dict = Depends(staff_user)):
+async def patch_workorder(oid: str, body: WorkorderPatch, request: Request, u: dict = Depends(staff_user)):
     o = await load_order(oid, u)
     upd, evs = {}, []
     if body.status is not None and body.status != o["status"]:
@@ -767,12 +784,12 @@ async def patch_workorder(oid: str, body: WorkorderPatch, u: dict = Depends(staf
         upd["updated_at"] = now_iso()
         await db.workorders.update_one({"id": oid}, {"$set": upd, "$push": {"events": {"$each": evs}}})
         if upd.get("status") == "Gereed":
-            await notify_gereed({**o, **upd}, u)
+            await notify_gereed({**o, **upd}, u, base_url(request))
     return await get_workorder(oid, u)
 
 
-def gereed_email_html(o: dict, v: dict) -> str:
-    link = f"{APP_URL}/portaal/werkorders/{o['id']}"
+def gereed_email_html(o: dict, v: dict, base: str) -> str:
+    link = f"{base}/portaal/werkorders/{o['id']}"
     car = escape(f"{v.get('merk', '')} {v.get('model', '')}".strip() or "je auto")
     return (
         '<table role="presentation" width="100%" style="background:#F8FAFC"><tr><td style="padding:32px;font-family:Arial,sans-serif;color:#0F172A">'
@@ -787,13 +804,13 @@ def gereed_email_html(o: dict, v: dict) -> str:
         '</td></tr></table>')
 
 
-async def notify_gereed(o: dict, u: dict):
+async def notify_gereed(o: dict, u: dict, base: str):
     v = await db.vehicles.find_one({"kenteken": o["kenteken"]}, {"_id": 0})
     to = (v or {}).get("owner_email")
     if not to:
         ev = {**event("Geen klantmail verstuurd: geen e-mailadres bij de auto", u, "email"), "internal": True}
     else:
-        sent = await send_email(to=to, subject=f"Je auto ({o['kenteken']}) is gereed", html=gereed_email_html(o, v))
+        sent = await send_email(to=to, subject=f"Je auto ({o['kenteken']}) is gereed", html=gereed_email_html(o, v, base))
         txt = f"Klant per e-mail geïnformeerd ({to})" if sent else f"Klantmail naar {to} mislukt"
         ev = {**event(txt, u, "email"), "internal": True}
     await db.workorders.update_one({"id": o["id"]}, {"$push": {"events": ev}})
@@ -895,6 +912,133 @@ async def delete_workorder(oid: str, u: dict = Depends(admin_user)):
     return {"ok": True}
 
 
+# ---------------- Afspraken ----------------
+APPT_STATUSES = ["Aangevraagd", "Bevestigd", "Afgerond", "Geannuleerd"]
+APPT_SERVICES = {**{k: v["name"] for k, v in TEMPLATES.items() if k != "vrij"}, "overig": "Overig / reparatie"}
+DAGDELEN = ["Geen voorkeur", "Ochtend", "Middag"]
+
+
+class AppointmentIn(BaseModel):
+    name: str = Field(min_length=2, max_length=100)
+    email: EmailStr
+    phone: str = Field(default="", max_length=30)
+    kenteken: str = Field(min_length=4, max_length=10)
+    service: str
+    preferred_date: str
+    dagdeel: str = "Geen voorkeur"
+    message: str = Field(default="", max_length=1000)
+
+
+class AppointmentPatch(BaseModel):
+    status: Optional[str] = None
+    confirmed_date: Optional[str] = None
+    confirmed_time: Optional[str] = None
+    staff_note: Optional[str] = Field(default=None, max_length=1000)
+
+
+def appt_row(label: str, value: str) -> str:
+    return f'<tr><td style="padding:4px 12px 4px 0;color:#64748B">{label}</td><td style="padding:4px 0"><strong>{escape(value or "-")}</strong></td></tr>'
+
+
+def appt_admin_html(a: dict, base: str) -> str:
+    rows = "".join(appt_row(lbl, a[k]) for lbl, k in [("Naam", "name"), ("E-mail", "email"), ("Telefoon", "phone"),
+                    ("Kenteken", "kenteken"), ("Dienst", "service_name"), ("Voorkeursdatum", "preferred_date"),
+                    ("Dagdeel", "dagdeel"), ("Bericht", "message")])
+    return (
+        '<table role="presentation" width="100%" style="background:#F8FAFC"><tr><td style="padding:32px;font-family:Arial,sans-serif;color:#0F172A">'
+        '<p style="font-size:11px;letter-spacing:3px;color:#C0474A;font-weight:bold;margin:0 0 8px">MERKANIC / NIEUWE AFSPRAAKAANVRAAG</p>'
+        '<h1 style="font-size:22px;margin:0 0 16px">Nieuwe afspraakaanvraag</h1>'
+        f'<table role="presentation" style="font-size:14px;margin-bottom:20px">{rows}</table>'
+        f'<p><a href="{base}/portaal/afspraken" style="display:inline-block;padding:12px 18px;background:#C0474A;color:#ffffff;font-weight:bold;text-decoration:none;border-radius:6px">Bekijk in het portaal</a></p>'
+        f'<p style="font-size:12px;color:#64748B;margin-top:24px">Verzonden door {escape(EMAIL_FROM_NAME)}.</p></td></tr></table>')
+
+
+def appt_confirm_html(a: dict, base: str) -> str:
+    when = f"{a.get('confirmed_date') or a['preferred_date']} {a.get('confirmed_time') or ''}".strip()
+    note = f'<p style="margin:0 0 16px">{escape(a["staff_note"])}</p>' if a.get("staff_note") else ""
+    return (
+        '<table role="presentation" width="100%" style="background:#F8FAFC"><tr><td style="padding:32px;font-family:Arial,sans-serif;color:#0F172A">'
+        '<p style="font-size:11px;letter-spacing:3px;color:#C0474A;font-weight:bold;margin:0 0 8px">MERKANIC / AFSPRAAK BEVESTIGD</p>'
+        f'<h1 style="font-size:22px;margin:0 0 16px">Je afspraak is bevestigd.</h1>'
+        f'<p style="margin:0 0 6px">Beste {escape(a["name"])},</p>'
+        f'<p style="margin:0 0 6px">We verwachten je auto met kenteken <strong>{escape(a["kenteken"])}</strong> voor: {escape(a["service_name"])}.</p>'
+        f'<p style="margin:0 0 16px">Datum/tijd: <strong>{escape(when)}</strong></p>{note}'
+        f'<p><a href="{base}/portaal/afspraken" style="display:inline-block;padding:12px 18px;background:#C0474A;color:#ffffff;font-weight:bold;text-decoration:none;border-radius:6px">Bekijk in het klantenportaal</a></p>'
+        f'<p style="font-size:12px;color:#64748B;margin-top:24px">Verzonden door {escape(EMAIL_FROM_NAME)}. Vragen? Beantwoord deze e-mail.</p>'
+        '</td></tr></table>')
+
+
+@api.get("/public/appointment-options")
+async def appointment_options():
+    return {"services": [{"key": k, "name": v} for k, v in APPT_SERVICES.items()], "dagdelen": DAGDELEN}
+
+
+@api.post("/public/appointments")
+async def create_appointment(body: AppointmentIn, request: Request, u: Optional[dict] = Depends(optional_user)):
+    if body.service not in APPT_SERVICES:
+        raise HTTPException(400, "Kies een geldige dienst")
+    if body.dagdeel not in DAGDELEN:
+        raise HTTPException(400, "Kies een geldig dagdeel")
+    try:
+        d = datetime.strptime(body.preferred_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "Ongeldige datum")
+    if d < datetime.now(timezone.utc).date():
+        raise HTTPException(400, "Kies een datum in de toekomst")
+    email = (u["email"] if u else body.email).lower()
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    if await db.appointments.count_documents({"email": email, "created_at": {"$gte": since}}) >= 3:
+        raise HTTPException(429, "Je hebt vandaag al meerdere aanvragen gedaan. We nemen contact met je op.")
+    a = {"id": str(uuid.uuid4()), "name": body.name.strip(), "email": email, "phone": body.phone.strip(),
+         "kenteken": norm_plate(body.kenteken), "service": body.service, "service_name": APPT_SERVICES[body.service],
+         "preferred_date": body.preferred_date, "dagdeel": body.dagdeel, "message": body.message.strip(),
+         "status": "Aangevraagd", "confirmed_date": "", "confirmed_time": "", "staff_note": "",
+         "user_id": u["id"] if u else None, "created_at": now_iso(), "updated_at": now_iso()}
+    await db.appointments.insert_one(a)
+    a.pop("_id", None)
+    await send_email(to=NOTIFY_EMAIL, subject=f"Afspraakaanvraag {a['kenteken']} - {a['service_name']}",
+                     html=appt_admin_html(a, base_url(request)))
+    return a
+
+
+@api.get("/appointments")
+async def list_appointments(status: str = "", u: dict = Depends(current_user)):
+    filt = {} if u["role"] in STAFF else {"$or": [{"user_id": u["id"]}, {"email": u["email"]}]}
+    if status:
+        filt["status"] = status
+    return await db.appointments.find(filt, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@api.patch("/appointments/{aid}")
+async def patch_appointment(aid: str, body: AppointmentPatch, request: Request, u: dict = Depends(staff_user)):
+    a = await db.appointments.find_one({"id": aid}, {"_id": 0})
+    if not a:
+        raise HTTPException(404, "Afspraak niet gevonden")
+    upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "status" in upd and upd["status"] not in APPT_STATUSES:
+        raise HTTPException(400, "Ongeldige status")
+    upd["updated_at"] = now_iso()
+    await db.appointments.update_one({"id": aid}, {"$set": upd})
+    a = {**a, **upd}
+    a["mail_sent"] = None
+    if upd.get("status") == "Bevestigd" and a.get("user_id"):
+        owner = await db.users.find_one({"id": a["user_id"], "status": "active"}, {"_id": 0})
+        if owner:
+            a["mail_sent"] = bool(await send_email(to=owner["email"], subject=f"Afspraak bevestigd - {a['kenteken']}",
+                                                   html=appt_confirm_html(a, base_url(request))))
+    return a
+
+
+@api.post("/appointments/{aid}/cancel")
+async def cancel_appointment(aid: str, u: dict = Depends(current_user)):
+    filt = {"id": aid} if u["role"] in STAFF else {"id": aid, "$or": [{"user_id": u["id"]}, {"email": u["email"]}]}
+    res = await db.appointments.update_one({**filt, "status": {"$in": ["Aangevraagd", "Bevestigd"]}},
+                                           {"$set": {"status": "Geannuleerd", "updated_at": now_iso()}})
+    if not res.matched_count:
+        raise HTTPException(404, "Afspraak niet gevonden of niet meer te annuleren")
+    return await db.appointments.find_one({"id": aid}, {"_id": 0})
+
+
 app.include_router(api)
 
 app.add_middleware(
@@ -915,6 +1059,8 @@ async def startup():
     await db.workorders.create_index("kenteken")
     await db.login_attempts.create_index("identifier")
     await db.approval_tokens.create_index("token", unique=True)
+    await db.appointments.create_index("id", unique=True)
+    await db.appointments.create_index("email")
     try:
         await asyncio.to_thread(init_storage)
     except Exception as e:
