@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 4: Afspraak Plannen + Domein Koppelen. Backend: 23/23 pytest passed. Covered: options endpoint, validation (bad service or dagdeel or date format -> 400, past date -> 400, bad email, short kenteken or name -> 422), 429 on the 4th request with 3 docs seeded in mongo (email matched case-insensitively), anonymous create (user_id null, plate normalized), logged-in klant create stamps user_id and uses the account email even when the body email is spoofed, list requires auth, klant sees only own, klant PATCH -> 403, klant cancelling someone else's -> 404, staff invalid status -> 400 and unknown id -> 404, Bevestigd with user_id -> mail_sent true to delivered@resend.dev, anonymous Bevestigd -> mail_sent null, Afgerond cannot be cancelled, /api/stats pending_appointments correct, approve page form action is relative. base_url() unit check: https://merkanic.nl and https://www.merkanic.nl/ are returned as-is; evil.com, http://localhost and no header fall back to APP_URL. Frontend: landing #afspraak, both nav and hero links scroll there, anonymous submit shows appointment-success and the DB record is correct. Staff: pending-appointments-alert, all 5 filter chips, confirm with date/time/note (toast 'klant is gemaild'), Afgerond, Annuleren, and Maak werkorder prefills kenteken, APK template, opmerking, owner name/email/phone. Klant: email prefilled and disabled in the portal, only own list, submit works, cancel works. No overflow at 390px on landing or afspraken. APK check regression OK. ONE HIGH BUG: a logged-in user cannot submit the appointment form on the LANDING page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/public/appointments", "issue": "The rate limit is per email only. Anonymous callers can rotate emails without limit, and every request emails info@merkanic.nl (spam vector). Consider a per-IP limit or a captcha/honeypot."},
+      {"endpoint": "PATCH /api/appointments/{id}", "issue": "No status-transition rules. A Geannuleerd or Afgerond appointment can be set back to Bevestigd, and every Bevestigd PATCH re-sends the confirmation email. confirmed_date and confirmed_time are not validated (can be empty or in the past). Cancelling (by staff or klant) does not notify the other party."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AppointmentForm on LandingPage (logged-in user)", "issue": "On a fresh load of / while logged in, the email field is DISABLED and EMPTY, and name/phone are empty too. The `empty` initial state reads `user` before AuthContext finishes loading, and there is no sync once it does. Submitting returns 422 'value is not a valid email address' and the user cannot type the email because the field is disabled. Fix: add useEffect(() => setF(f => ({...f, name: f.name || user?.name || '', email: user?.email || '', phone: f.phone || user?.phone || ''})), [user]), or send a placeholder email when logged in. The portal page is not affected because auth is already loaded there.", "selector": "[data-testid='appt-email-input']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AppointmentForm + staff confirm row", "issues": ["The date and time fields use native browser inputs (type=date/time) instead of the shadcn Calendar/Popover. They show in US mm/dd/yyyy format, which looks odd for a Dutch site."]},
+      {"screen": "Landing 'Welkom terug, {name}' banner (logged in)", "issues": ["The subtitle still says 'Log in om jouw portaal te bekijken, of registreer een nieuw account' even though the user is logged in."]},
+      {"screen": "Staff Afspraken", "issues": ["Staff 'Annuleren' runs immediately with no confirm dialog (the klant cancel does have one)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_appointments.py", "/app/backend/tests/seed_ui_iter4.py", "/app/test_reports/pytest/pytest_iter4.xml"],
+  "action_items": [
+    "HIGH: Fix AppointmentForm initial state so it syncs with the auth user once loaded (landing page, logged-in user cannot submit)",
+    "Optional: add a per-IP rate limit or honeypot on POST /api/public/appointments",
+    "Optional: add status-transition guards and prevent duplicate confirmation emails",
+    "Optional: replace native date/time inputs with the shadcn Calendar; fix the logged-in banner copy; add a confirm to staff Annuleren"
+  ],
+  "critical_code_review_comments": [
+    "AppointmentForm.today() uses toISOString (UTC), and the backend compares against the UTC date. Between 00:00 and 01:00/02:00 Dutch local time, 'today' is still yesterday. This is minor, but Europe/Amsterdam would be more correct.",
+    "Klant list and cancel also match on email, so anonymous requests made earlier with the same email show up in the klant account. This is intended, but it relies on account emails being verified, which approval does not do.",
+    "server.py is ~1085 lines and should be split into modules (auth, workorders, appointments, email)."
+  ],
+  "updated_files": ["/app/backend/tests/test_appointments.py", "/app/backend/tests/seed_ui_iter4.py"],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "~93% (1 HIGH bug: logged-in landing submit)"},
+  "test_credentials": "ori@merkanic.nl / Merkanic1! (beheerder). Temporary klanten delivered@resend.dev and test_klantb@example.com / Klant123! were seeded and removed.",
+  "seed_data_creation": "Temporary klant users and appointments were seeded directly in mongo and fully cleaned up afterwards (0 appointments; only ori remains; no TEST vehicles or workorders; the werkorder form was opened but not saved). S597PJ untouched. Exactly 4 appointment-creation emails went to info@merkanic.nl (2 API, 1 landing UI, 1 portal UI) and 2 confirmation emails went to delivered@resend.dev.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_appointments.py makes 2 REAL appointment creations (emails to info@merkanic.nl) and seeds and cleans its own klant users. Do not run it repeatedly. seed_ui_iter4.py seed|clean creates klanten (Klant123!) plus appointments TEST_A1 (klant A), TEST_ANON and TEST_B1 for UI tests with no emails sent. To retest the landing bug: log in as a klant, open /#afspraak, check that appt-email-input has the account email, then submit (sends 1 email)."
+}

@@ -1019,9 +1019,10 @@ async def patch_appointment(aid: str, body: AppointmentPatch, request: Request, 
         raise HTTPException(400, "Ongeldige status")
     upd["updated_at"] = now_iso()
     await db.appointments.update_one({"id": aid}, {"$set": upd})
+    prev_status = a["status"]
     a = {**a, **upd}
     a["mail_sent"] = None
-    if upd.get("status") == "Bevestigd" and a.get("user_id"):
+    if upd.get("status") == "Bevestigd" and prev_status != "Bevestigd" and a.get("user_id"):
         owner = await db.users.find_one({"id": a["user_id"], "status": "active"}, {"_id": 0})
         if owner:
             a["mail_sent"] = bool(await send_email(to=owner["email"], subject=f"Afspraak bevestigd - {a['kenteken']}",

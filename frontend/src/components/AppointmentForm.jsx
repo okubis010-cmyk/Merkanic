@@ -23,6 +23,9 @@ export const AppointmentForm = ({ onCreated, dark }) => {
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
   useEffect(() => { api.get("/public/appointment-options").then((r) => setOpts(r.data)); }, []);
+  useEffect(() => {
+    if (user) setF((p) => ({ ...p, name: p.name || user.name || "", email: user.email, phone: p.phone || user.phone || "" }));
+  }, [user]);
   const set = (k) => (e) => setF({ ...f, [k]: e?.target ? e.target.value : e });
 
   const submit = async (e) => {

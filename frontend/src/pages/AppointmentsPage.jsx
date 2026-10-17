@@ -41,7 +41,7 @@ const StaffActions = ({ a, onSaved }) => {
           <Link to={`/portaal/werkorders/nieuw?${params}`}><Wrench className="h-4 w-4 mr-1" />Maak werkorder</Link>
         </Button>
         {a.status === "Bevestigd" && <Button data-testid={`appt-done-button-${a.id}`} size="sm" variant="outline" className="rounded-none" onClick={() => patch({ status: "Afgerond" })}>Afgerond</Button>}
-        {["Aangevraagd", "Bevestigd"].includes(a.status) && <Button data-testid={`appt-cancel-button-${a.id}`} size="sm" variant="ghost" className="rounded-none text-[#C0474A]" onClick={() => patch({ status: "Geannuleerd" })}><X className="h-4 w-4 mr-1" />Annuleren</Button>}
+        {["Aangevraagd", "Bevestigd"].includes(a.status) && <Button data-testid={`appt-cancel-button-${a.id}`} size="sm" variant="ghost" className="rounded-none text-[#C0474A]" onClick={() => window.confirm("Afspraak annuleren?") && patch({ status: "Geannuleerd" })}><X className="h-4 w-4 mr-1" />Annuleren</Button>}
       </div>
     </div>
   );

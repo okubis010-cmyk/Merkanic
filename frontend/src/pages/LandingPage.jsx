@@ -136,7 +136,7 @@ const Portaal = () => {
         <div>
           <CalendarCheck className="h-6 w-6 text-[#f08b8d] mb-3" />
           <div className="font-display text-2xl font-semibold">{user ? `Welkom terug, ${user.name}.` : "Welkom terug."}</div>
-          <p className="text-slate-300 text-sm mt-1">Log in om jouw portaal te bekijken, of registreer een nieuw account.</p>
+          <p className="text-slate-300 text-sm mt-1">{user ? "Ga verder naar je portaal." : "Log in om jouw portaal te bekijken, of registreer een nieuw account."}</p>
         </div>
         <div className="flex gap-3">
           <Link to={user ? "/portaal" : "/login"} data-testid="portaal-login-button" className="bg-[#C0474A] px-6 py-3 font-semibold hover:bg-[#A8383B] transition-colors">{user ? "Naar portaal" : "Inloggen"}</Link>
