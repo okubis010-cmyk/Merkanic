@@ -16,12 +16,13 @@ from urllib.parse import urlparse
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
+import hmac
 import bcrypt
 import jwt
 import asyncio
 import httpx
 import requests
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Form, File, UploadFile
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Form, File, UploadFile, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -42,6 +43,8 @@ EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ['EMERGENT_EMAIL_KEY']
 EMAIL_FROM_NAME = os.environ['EMAIL_FROM_NAME']
 EMAIL_REPLY_TO = os.environ.get('EMAIL_REPLY_TO')
+WEBHOOK_CRON_SECRET = os.environ['WEBHOOK_CRON_SECRET']
+APK_REMINDER_DAYS = 30
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
 STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ['EMERGENT_LLM_KEY']
@@ -325,6 +328,7 @@ class VehicleIn(BaseModel):
 
 
 class VehiclePatch(BaseModel):
+    apk_reminders_off: Optional[bool] = None
     merk: Optional[str] = None
     model: Optional[str] = None
     bouwjaar: Optional[str] = None
@@ -1038,6 +1042,106 @@ async def cancel_appointment(aid: str, u: dict = Depends(current_user)):
     if not res.matched_count:
         raise HTTPException(404, "Afspraak niet gevonden of niet meer te annuleren")
     return await db.appointments.find_one({"id": aid}, {"_id": 0})
+
+
+# ---------------- APK-herinneringen ----------------
+def parse_nl_date(s: str):
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime((s or "").strip(), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def apk_email_html(v: dict, days: int) -> str:
+    car = escape(f"{v.get('merk', '')} {v.get('model', '')}".strip() or "je auto")
+    return (
+        '<table role="presentation" width="100%" style="background:#F8FAFC"><tr><td style="padding:32px;font-family:Arial,sans-serif;color:#0F172A">'
+        '<p style="font-size:11px;letter-spacing:3px;color:#C0474A;font-weight:bold;margin:0 0 8px">MERKANIC / APK-HERINNERING</p>'
+        f'<h1 style="font-size:22px;margin:0 0 16px">De APK van je {car} verloopt binnenkort.</h1>'
+        f'<p style="margin:0 0 6px">Beste {escape(v.get("owner_name") or "klant")},</p>'
+        f'<p style="margin:0 0 6px">De APK van je auto met kenteken <strong>{escape(v["kenteken"])}</strong> verloopt op '
+        f'<strong>{escape(v["apk_vervaldatum"])}</strong> (over {days} dagen).</p>'
+        '<p style="margin:0 0 20px">Plan op tijd je APK-keuring in, dan blijf je zorgeloos rijden.</p>'
+        f'<p><a href="{APP_URL}/#afspraak" style="display:inline-block;padding:12px 18px;background:#C0474A;color:#ffffff;font-weight:bold;text-decoration:none;border-radius:6px">APK-afspraak maken</a></p>'
+        f'<p style="font-size:12px;color:#64748B;margin-top:24px">Verzonden door {escape(EMAIL_FROM_NAME)}. Gegevens afkomstig van de RDW. '
+        'Is je APK al gedaan of wil je geen herinneringen meer? Beantwoord deze e-mail.</p></td></tr></table>')
+
+
+async def run_apk_reminders(trigger: str) -> dict:
+    today = datetime.now(timezone.utc).date()
+    sent, checked, skipped = [], 0, 0
+    vs = await db.vehicles.find({"owner_email": {"$nin": ["", None]}, "apk_reminders_off": {"$ne": True}}, {"_id": 0}).to_list(5000)
+    for v in vs:
+        d = parse_nl_date(v.get("apk_vervaldatum"))
+        if not d or not (0 <= (d - today).days <= APK_REMINDER_DAYS):
+            continue
+        checked += 1
+        try:
+            fresh = (await fetch_rdw(v["kenteken"])).get("apk_vervaldatum")
+        except HTTPException:
+            fresh = None
+        if fresh and fresh != v["apk_vervaldatum"]:
+            await db.vehicles.update_one({"kenteken": v["kenteken"]}, {"$set": {"apk_vervaldatum": fresh}})
+            v["apk_vervaldatum"] = fresh
+            d = parse_nl_date(fresh)
+        days = (d - today).days if d else -1
+        if not (0 <= days <= APK_REMINDER_DAYS) or v.get("apk_reminder_for") == v["apk_vervaldatum"]:
+            skipped += 1
+            continue
+        if await send_email(to=v["owner_email"], subject=f"APK-herinnering {v['kenteken']}: verloopt op {v['apk_vervaldatum']}",
+                            html=apk_email_html(v, days)):
+            await db.vehicles.update_one({"kenteken": v["kenteken"]}, {"$set": {
+                "apk_reminder_for": v["apk_vervaldatum"], "apk_reminder_sent_at": now_iso()}})
+            sent.append(v["kenteken"])
+    result = {"trigger": trigger, "checked": checked, "skipped": skipped, "sent": sent, "at": now_iso()}
+    await db.apk_reminder_log.insert_one({**result})
+    logger.info(f"APK reminders: {result}")
+    return result
+
+
+@api.post("/cron/apk-reminders")
+async def cron_apk_reminders(request: Request, background: BackgroundTasks):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], WEBHOOK_CRON_SECRET):
+        raise HTTPException(401, "Unauthorized")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid body")
+    run_id = request.headers.get("X-Webhook-Id") or body.get("run_id") or str(uuid.uuid4())
+    try:
+        await db.cron_runs.insert_one({"_id": run_id, "name": "apk-reminders", "at": now_iso()})
+    except Exception:
+        return {"status": "duplicate"}
+    background.add_task(run_apk_reminders, "cron")
+    return {"status": "accepted"}
+
+
+@api.get("/apk-reminders")
+async def apk_overview(_: dict = Depends(staff_user)):
+    today = datetime.now(timezone.utc).date()
+    rows = []
+    for v in await db.vehicles.find({}, {"_id": 0}).to_list(5000):
+        d = parse_nl_date(v.get("apk_vervaldatum"))
+        if d and -30 <= (d - today).days <= 60:
+            rows.append({"kenteken": v["kenteken"], "merk": v.get("merk", ""), "model": v.get("model", ""),
+                         "owner_name": v.get("owner_name", ""), "owner_email": v.get("owner_email", ""),
+                         "apk_vervaldatum": v["apk_vervaldatum"], "days_left": (d - today).days,
+                         "reminder_sent_at": v.get("apk_reminder_sent_at") if v.get("apk_reminder_for") == v["apk_vervaldatum"] else None,
+                         "reminders_off": bool(v.get("apk_reminders_off"))})
+    rows.sort(key=lambda r: r["days_left"])
+    last = await db.apk_reminder_log.find_one({}, {"_id": 0}, sort=[("at", -1)])
+    return {"vehicles": rows, "last_run": last, "window_days": APK_REMINDER_DAYS}
+
+
+@api.post("/apk-reminders/run")
+async def apk_run_now(_: dict = Depends(admin_user)):
+    return await run_apk_reminders("handmatig")
 
 
 app.include_router(api)

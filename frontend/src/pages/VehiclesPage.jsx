@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/PageHeader";
 import { Plate } from "@/components/Plate";
 import { useAuth } from "@/context/AuthContext";
+import { ApkReminders } from "@/components/ApkReminders";
 import { api, fmtDate, fmtKm } from "@/lib/api";
 
 const FolderCard = ({ v, i }) => (
@@ -46,6 +47,7 @@ export default function VehiclesPage() {
           <Input data-testid="vehicle-search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Zoek kenteken, merk, eigenaar…" className="pl-9 rounded-none bg-white" />
         </div>
       </PageHeader>
+      {isStaff && <ApkReminders />}
       {list === null && <div className="text-slate-500">Laden…</div>}
       {list?.length === 0 && (
         <div data-testid="vehicle-empty" className="border border-dashed border-slate-300 bg-white p-10 text-slate-500 text-sm">
