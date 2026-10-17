@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import PortalLayout from "@/components/PortalLayout";
 import LoginPage from "@/pages/LoginPage";
+import LandingPage from "@/pages/LandingPage";
 import WorkordersPage from "@/pages/WorkordersPage";
 import VehiclesPage from "@/pages/VehiclesPage";
 import VehicleFolderPage from "@/pages/VehicleFolderPage";
@@ -30,6 +31,7 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/portaal" element={<Protected><PortalLayout /></Protected>}>
             <Route index element={<Home />} />
@@ -39,7 +41,7 @@ function App() {
             <Route path="werkorders/:id" element={<WorkorderDetailPage />} />
             <Route path="gebruikers" element={<Protected admin><UsersPage /></Protected>} />
           </Route>
-          <Route path="*" element={<Navigate to="/portaal" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
       <Toaster position="top-right" richColors />

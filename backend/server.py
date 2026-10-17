@@ -506,8 +506,18 @@ async def list_monteurs(_: dict = Depends(staff_user)):
 # ---------------- RDW ----------------
 @api.get("/rdw/{kenteken}")
 async def rdw_lookup(kenteken: str, _: dict = Depends(staff_user)):
+    return await fetch_rdw(kenteken)
+
+
+@api.get("/public/apk/{kenteken}")
+async def public_apk(kenteken: str):
+    d = await fetch_rdw(kenteken)
+    return {k: d[k] for k in ("kenteken", "merk", "model", "apk_vervaldatum")}
+
+
+async def fetch_rdw(kenteken: str) -> dict:
     k = norm_plate(kenteken)
-    if not k:
+    if not k or len(k) > 8:
         raise HTTPException(400, "Ongeldig kenteken")
     try:
         async with httpx.AsyncClient(timeout=10) as c:
@@ -798,6 +808,9 @@ async def upload_photo(oid: str, file: UploadFile = File(...), caption: str = Fo
     data = await file.read()
     if len(data) > MAX_PHOTO_BYTES:
         raise HTTPException(400, "Foto is te groot (max 15 MB)")
+    if not (data[:3] == b"\xff\xd8\xff" or data[:8] == b"\x89PNG\r\n\x1a\n"
+            or (data[:4] == b"RIFF" and data[8:12] == b"WEBP") or data[4:8] == b"ftyp"):
+        raise HTTPException(400, "Bestand is geen geldige foto")
     pid = str(uuid.uuid4())
     path = f"{STORAGE_APP}/workorders/{oid}/{pid}.{IMAGE_TYPES[ctype]}"
     try:

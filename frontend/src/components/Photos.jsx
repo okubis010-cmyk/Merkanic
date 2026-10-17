@@ -34,19 +34,20 @@ const Uploader = ({ o, setO }) => {
   const upload = async (files) => {
     if (!files?.length) return;
     setBusy(true);
+    let ok = 0;
     for (const file of files) {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("caption", caption);
-      try { const { data } = await api.post(`/workorders/${o.id}/photos`, fd); setO(data); } catch (e) { toast.error(errMsg(e)); }
+      try { const { data } = await api.post(`/workorders/${o.id}/photos`, fd); setO(data); ok += 1; } catch (e) { toast.error(errMsg(e)); }
     }
     setCaption(""); setBusy(false); ref.current.value = "";
-    toast.success("Foto('s) toegevoegd");
+    if (ok) toast.success(`${ok} foto('s) toegevoegd`);
   };
   return (
     <div className="flex flex-col sm:flex-row gap-2 mt-4">
       <Input data-testid="photo-caption-input" className="rounded-none" placeholder="Bijschrift (optioneel), bv. remblokken versleten" value={caption} onChange={(e) => setCaption(e.target.value)} />
-      <input ref={ref} data-testid="photo-file-input" type="file" accept="image/*" multiple className="hidden" onChange={(e) => upload([...e.target.files])} />
+      <input ref={ref} data-testid="photo-file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={(e) => upload([...e.target.files])} />
       <Button type="button" data-testid="photo-upload-button" disabled={busy} onClick={() => ref.current.click()} className="rounded-none bg-slate-900 hover:bg-[#C0474A]">
         {busy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Camera className="h-4 w-4 mr-1" />}Foto uploaden
       </Button>

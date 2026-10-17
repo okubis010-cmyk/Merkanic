@@ -36,7 +36,7 @@ export default function PortalLayout() {
       <aside className="lg:w-64 lg:min-h-screen border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 lg:sticky lg:top-0 lg:h-screen flex flex-col">
         <div className="px-5 py-5 flex items-center justify-between lg:block">
           <div data-testid="portal-header-logo">
-            <div className="font-display text-xl font-extrabold tracking-tight">MERKANIC<span className="text-[#C0474A]">.</span></div>
+            <a href="/" className="font-display text-xl font-extrabold tracking-tight">MERKANIC<span className="text-[#C0474A]">.</span></a>
             <div className="eyebrow mt-1 !text-slate-400">Werkplaats & portaal</div>
           </div>
           <button data-testid="logout-button-mobile" onClick={async () => { await logout(); nav("/login"); }} className="lg:hidden text-slate-500"><LogOut className="h-5 w-5" /></button>

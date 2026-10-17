@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Clock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -69,7 +69,8 @@ const RegisterForm = () => {
 
 export default function LoginPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState("login");
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(params.get("tab") === "register" ? "register" : "login");
   if (user) return <Navigate to="/portaal" replace />;
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-[#F1F5F9]">
@@ -83,7 +84,7 @@ export default function LoginPage() {
       </div>
       <div className="flex items-center justify-center px-6 py-14">
         <div className="w-full max-w-md bg-white border border-slate-200 p-8 sm:p-10 fade-up">
-          <div className="font-display text-2xl font-extrabold tracking-tight mb-1">MERKANIC<span className="text-[#C0474A]">.</span></div>
+          <Link to="/" data-testid="login-home-link" className="font-display text-2xl font-extrabold tracking-tight mb-1 inline-block">MERKANIC<span className="text-[#C0474A]">.</span></Link>
           <div className="flex border-b border-slate-200 my-6">
             {[["login", "Inloggen"], ["register", "Registreren"]].map(([k, l]) => (
               <button key={k} data-testid={`tab-${k}`} onClick={() => setTab(k)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${tab === k ? "border-[#C0474A] text-slate-900" : "border-transparent text-slate-400 hover:text-slate-700"}`}>{l}</button>

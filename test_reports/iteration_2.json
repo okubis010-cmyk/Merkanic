@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 2: werkfoto's upload and klantmail bij Gereed, plus iteration_1 regressions. Backend: new tests/test_photos_gereed.py has 18 tests and all pass. The old test_merkanic_api.py (17 tests) also passes in full. Photo upload works with real Emergent object storage, both with and without a caption, for beheerder and monteur. Non-image -> 400, klant -> 403, unknown order -> 404. GET photo returns the exact PNG bytes to staff and to the owning klant; another klant gets 404 and an unauthenticated request gets 401. DELETE is staff-only (klant 403) and soft-deletes (is_deleted=true in mongo, GET then 404). photo_count shows in the list and storage_path is not exposed. Gereed via PATCH sends a real email to delivered@resend.dev and adds the internal event 'Klant per e-mail geïnformeerd (delivered@resend.dev)'. The klant cannot see it on the order or in the vehicle history. With no owner_email, the event 'Geen klantmail verstuurd...' is added. Other statuses send no email. Frontend (Playwright): beheerder uploads 2 photos at once with a caption, thumbnails render, the caption resets, the lightbox shows caption/by/date, and delete via the confirm dialog removes the thumb and logs 'Foto verwijderd'. Setting werkorder-status-select to Gereed shows the toast 'Klant per e-mail geïnformeerd (delivered@resend.dev)' and the badge changes to Gereed. Klant at 390px sees 3 thumbs and the lightbox read-only (no upload/caption/delete) and no email event. scrollWidth is 390 on the detail and folder pages. Regressions all fixed: email-based lockout gives 429 on the 6th attempt, volgnummer is 3 after delete, event text is 'Werkorder aangemaakt (Kleine beurt, 87.500 km)', and the mobile folder page has no overflow.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/workorders/{id}/photos", "issue": "Image validation trusts only the client-sent Content-Type. A text/HTML/any file sent as image/png is accepted and stored. Check magic bytes (or open it with Pillow) before storing."},
+      {"endpoint": "PATCH /api/workorders/{id} (Gereed)", "issue": "Every transition into Gereed sends a new email (e.g. Gereed -> In behandeling -> Gereed sends twice). There is no dedupe flag. Possibly intended, but consider storing gereed_mail_sent_at. The email is also sent inline, so the PATCH waits up to 30s if the email API is slow; consider a BackgroundTask."},
+      {"endpoint": "DELETE /api/workorders/{id}/photos/{pid} and DELETE /api/workorders/{id}", "issue": "Soft delete only. Objects stay in storage, and deleting a werkorder leaves its photo objects orphaned. Acceptable per spec, just noting it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Photos.jsx Uploader", "issue": "toast.success(\"Foto('s) toegevoegd\") always runs after the loop, even when every upload failed. The user sees an error toast and a success toast together. Track the success count and only show success if >0.", "selector": "[data-testid=photo-upload-button]", "priority": "LOW"},
+      {"component": "Photos.jsx file input", "issue": "accept=\"image/*\" lets users pick GIF/SVG/BMP/AVIF, which the backend rejects with 400. HEIC is accepted by the backend, but Chrome/Firefox cannot render HEIC in <img>, so those thumbs show as blank. Restrict accept to image/jpeg,image/png,image/webp,image/heic, or convert HEIC on the server.", "selector": "[data-testid=photo-file-input]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Werkorder detail - Logboek (staff)", "issues": ["The internal 'Klant per e-mail geïnformeerd' event looks the same as public events. Add an 'Intern' tag or mail icon so staff know the klant cannot see it."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_photos_gereed.py", "/app/backend/tests/test_merkanic_api.py", "/app/backend/tests/seed_ui_iter2.py", "/app/test_reports/pytest/pytest_results_iter2.xml"],
+  "action_items": [
+    "Optional: validate photo magic bytes server-side instead of trusting Content-Type",
+    "Optional: only show the upload success toast when at least one file uploaded; tighten accept= to the supported types (or handle HEIC rendering)",
+    "Optional: dedupe the Gereed email or send it in a background task; mark internal events visually in the staff logboek"
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 925 lines; split it into routers (auth, users, vehicles, workorders, photos, email)",
+    "Thumb fetches every photo as a full-size blob through the backend (no thumbnails), so an order with many 10 MB phone photos is heavy, especially on mobile. Consider server-side thumbnail generation",
+    "get_photo loads the whole object into memory with requests in a thread; fine for an MVP with the 15 MB cap"
+  ],
+  "updated_files": ["/app/backend/tests/test_photos_gereed.py", "/app/backend/tests/seed_ui_iter2.py"],
+  "success_rate": {"backend": "100% (35/35 across both files)", "frontend": "100% of requested flows; 2 low-priority UI issues"},
+  "test_credentials": "Beheerder ori@merkanic.nl / Merkanic1! works. Klant/monteur users were seeded directly in mongo (password Test1234!) and deleted afterwards.",
+  "seed_data_creation": "Created TEST11/12/13/21 vehicles, orders and photos and klant/monteur users (delivered@resend.dev, test_*@merkanic-test.nl), then deleted them all. Also removed the TEST98 smoke vehicle/order, all TEST counters, all login_attempts and every user except ori@merkanic.nl. Remaining: vehicle S597PJ (real, untouched) with WO-00001/2. counters.workorder is at 12. Uploaded photo objects remain in object storage (no delete API).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=<url> python -m pytest tests/test_merkanic_api.py tests/test_photos_gereed.py -n 0 -v. test_photos_gereed seeds klant delivered@resend.dev in mongo, so Gereed emails go to the Resend test sink. 3 real Gereed emails were sent in this run (2 API, 1 UI), all reported as sent. For UI: python tests/seed_ui_iter2.py prints a werkorder id for TEST21; run 'python tests/seed_ui_iter2.py cleanup' afterwards. The browser tool can read /tmp files for set_input_files.",
+  "rca of the issue": "No functional failures. The success-toast bug comes from the unconditional toast.success after the for-loop in Uploader.upload()."
+}

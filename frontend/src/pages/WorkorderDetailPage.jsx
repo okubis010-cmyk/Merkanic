@@ -92,7 +92,7 @@ export default function WorkorderDetailPage() {
             <h3 className="font-display font-semibold mb-3">Logboek</h3>
             <div className="space-y-3 max-h-80 overflow-y-auto" data-testid="workorder-events">
               {[...o.events].reverse().map((e) => (
-                <div key={e.id} className="text-sm"><div className="text-xs text-slate-400">{fmtDateTime(e.at)} · {e.by}</div>{e.text}</div>
+                <div key={e.id} className="text-sm"><div className="text-xs text-slate-400">{fmtDateTime(e.at)} · {e.by}{e.internal && <span className="ml-1.5 text-amber-700">· intern</span>}</div>{e.text}</div>
               ))}
             </div>
           </div>
