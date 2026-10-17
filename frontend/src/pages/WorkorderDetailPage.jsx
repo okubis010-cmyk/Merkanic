@@ -10,6 +10,7 @@ import { Plate } from "@/components/Plate";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Checklist } from "@/components/Checklist";
 import { Comments } from "@/components/Comments";
+import { Photos } from "@/components/Photos";
 import { useAuth } from "@/context/AuthContext";
 import { api, errMsg, STATUSES, fmtDateTime, fmtKm } from "@/lib/api";
 
@@ -47,7 +48,12 @@ export default function WorkorderDetailPage() {
   useEffect(() => { api.get(`/workorders/${id}`).then((r) => setO(r.data)).catch(() => setErr("Werkorder niet gevonden.")); }, [id]);
 
   const update = async (patch) => {
-    try { const { data } = await api.patch(`/workorders/${id}`, patch); setO(data); toast.success("Werkorder bijgewerkt"); } catch (e) { toast.error(errMsg(e)); }
+    try {
+      const { data } = await api.patch(`/workorders/${id}`, patch);
+      setO(data);
+      const last = data.events[data.events.length - 1];
+      toast.success(patch.status === "Gereed" && last?.type === "email" ? last.text : "Werkorder bijgewerkt");
+    } catch (e) { toast.error(errMsg(e)); }
   };
   const remove = async () => {
     if (!window.confirm("Werkorder definitief verwijderen?")) return;
@@ -72,6 +78,7 @@ export default function WorkorderDetailPage() {
       <div className="grid lg:grid-cols-[1fr_340px] gap-6">
         <div className="space-y-6">
           <Checklist o={o} setO={setO} editable={isStaff} />
+          <Photos o={o} setO={setO} />
           <Comments o={o} setO={setO} />
         </div>
         <div className="space-y-6">

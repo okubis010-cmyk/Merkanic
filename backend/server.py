@@ -18,8 +18,10 @@ from typing import List, Optional
 
 import bcrypt
 import jwt
+import asyncio
 import httpx
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Form
+import requests
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -39,6 +41,40 @@ EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ['EMERGENT_EMAIL_KEY']
 EMAIL_FROM_NAME = os.environ['EMAIL_FROM_NAME']
 EMAIL_REPLY_TO = os.environ.get('EMAIL_REPLY_TO')
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ['EMERGENT_LLM_KEY']
+STORAGE_APP = "merkanic"
+IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif"}
+MAX_PHOTO_BYTES = 15 * 1024 * 1024
+_storage_key = None
+
+
+def init_storage(force: bool = False):
+    global _storage_key
+    if _storage_key and not force:
+        return _storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+
+def _storage_call(method: str, path: str, **kw):
+    for attempt in (0, 1):
+        resp = requests.request(method, f"{STORAGE_URL}/objects/{path}",
+                                headers={"X-Storage-Key": init_storage(force=attempt == 1), **kw.pop("headers", {})}, **kw)
+        if resp.status_code != 404 or attempt == 1:
+            resp.raise_for_status()
+            return resp
+
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    return _storage_call("PUT", path, headers={"Content-Type": content_type}, data=data, timeout=120).json()
+
+
+def get_object(path: str) -> bytes:
+    return _storage_call("GET", path, timeout=60).content
 
 ROLES = ["klant", "monteur", "beheerder"]
 STAFF = {"monteur", "beheerder"}
@@ -500,6 +536,8 @@ def vehicle_scope(u: dict) -> dict:
 
 
 def strip_internal(order: dict, u: dict) -> dict:
+    order["photos"] = [{k: p[k] for k in ("id", "caption", "by", "at", "content_type")}
+                       for p in order.get("photos", []) if not p.get("is_deleted")]
     if u["role"] not in STAFF:
         order["comments"] = [c for c in order.get("comments", []) if not c.get("internal")]
         order["events"] = [e for e in order.get("events", []) if not e.get("internal")]
@@ -630,6 +668,7 @@ async def list_workorders(status: str = "", monteur_id: str = "", q: str = "", u
         o["checklist_done"] = len([c for c in o.get("checklist", []) if c["done"]])
         o["checklist_total"] = len(o.get("checklist", []))
         o.pop("checklist", None)
+        o["photo_count"] = len([p for p in o.pop("photos", []) if not p.get("is_deleted")])
     return orders
 
 
@@ -717,6 +756,83 @@ async def patch_workorder(oid: str, body: WorkorderPatch, u: dict = Depends(staf
     if upd:
         upd["updated_at"] = now_iso()
         await db.workorders.update_one({"id": oid}, {"$set": upd, "$push": {"events": {"$each": evs}}})
+        if upd.get("status") == "Gereed":
+            await notify_gereed({**o, **upd}, u)
+    return await get_workorder(oid, u)
+
+
+def gereed_email_html(o: dict, v: dict) -> str:
+    link = f"{APP_URL}/portaal/werkorders/{o['id']}"
+    car = escape(f"{v.get('merk', '')} {v.get('model', '')}".strip() or "je auto")
+    return (
+        '<table role="presentation" width="100%" style="background:#F8FAFC"><tr><td style="padding:32px;font-family:Arial,sans-serif;color:#0F172A">'
+        '<p style="font-size:11px;letter-spacing:3px;color:#C0474A;font-weight:bold;margin:0 0 8px">MERKANIC / WERKORDER GEREED</p>'
+        f'<h1 style="font-size:22px;margin:0 0 16px">Je {car} staat klaar.</h1>'
+        f'<p style="margin:0 0 6px">Beste {escape(v.get("owner_name") or "klant")},</p>'
+        f'<p style="margin:0 0 6px">De werkzaamheden aan je auto met kenteken <strong>{escape(o["kenteken"])}</strong> zijn afgerond.</p>'
+        f'<p style="margin:0 0 20px">Werkorder: <strong>{escape(o["number"])}</strong> &middot; {escape(o["title"])}</p>'
+        f'<p><a href="{link}" style="display:inline-block;padding:12px 18px;background:#C0474A;color:#ffffff;font-weight:bold;text-decoration:none;border-radius:6px">Bekijk in het klantenportaal</a></p>'
+        '<p style="margin-top:20px">Je kunt je auto ophalen tijdens onze openingstijden.</p>'
+        f'<p style="font-size:12px;color:#64748B;margin-top:24px">Verzonden door {escape(EMAIL_FROM_NAME)}. Vragen? Beantwoord deze e-mail.</p>'
+        '</td></tr></table>')
+
+
+async def notify_gereed(o: dict, u: dict):
+    v = await db.vehicles.find_one({"kenteken": o["kenteken"]}, {"_id": 0})
+    to = (v or {}).get("owner_email")
+    if not to:
+        ev = {**event("Geen klantmail verstuurd: geen e-mailadres bij de auto", u, "email"), "internal": True}
+    else:
+        sent = await send_email(to=to, subject=f"Je auto ({o['kenteken']}) is gereed", html=gereed_email_html(o, v))
+        txt = f"Klant per e-mail geïnformeerd ({to})" if sent else f"Klantmail naar {to} mislukt"
+        ev = {**event(txt, u, "email"), "internal": True}
+    await db.workorders.update_one({"id": o["id"]}, {"$push": {"events": ev}})
+
+
+@api.post("/workorders/{oid}/photos")
+async def upload_photo(oid: str, file: UploadFile = File(...), caption: str = Form(""), u: dict = Depends(staff_user)):
+    await load_order(oid, u)
+    ctype = (file.content_type or "").lower()
+    if ctype not in IMAGE_TYPES:
+        raise HTTPException(400, "Alleen foto's (JPG, PNG, WEBP, HEIC) toegestaan")
+    data = await file.read()
+    if len(data) > MAX_PHOTO_BYTES:
+        raise HTTPException(400, "Foto is te groot (max 15 MB)")
+    pid = str(uuid.uuid4())
+    path = f"{STORAGE_APP}/workorders/{oid}/{pid}.{IMAGE_TYPES[ctype]}"
+    try:
+        res = await asyncio.to_thread(put_object, path, data, ctype)
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(502, "Uploaden mislukt, probeer het opnieuw")
+    photo = {"id": pid, "storage_path": res["path"], "content_type": ctype, "caption": caption.strip()[:200],
+             "original_filename": file.filename, "size": len(data), "by": u["name"], "at": now_iso(), "is_deleted": False}
+    await db.workorders.update_one({"id": oid}, {"$push": {"photos": photo, "events": event(
+        f"Foto toegevoegd{': ' + photo['caption'] if photo['caption'] else ''}", u, "photo")}})
+    return await get_workorder(oid, u)
+
+
+@api.get("/workorders/{oid}/photos/{pid}")
+async def get_photo(oid: str, pid: str, u: dict = Depends(current_user)):
+    o = await load_order(oid, u)
+    p = next((p for p in o.get("photos", []) if p["id"] == pid and not p.get("is_deleted")), None)
+    if not p:
+        raise HTTPException(404, "Foto niet gevonden")
+    try:
+        data = await asyncio.to_thread(get_object, p["storage_path"])
+    except Exception as e:
+        logger.error(f"Download failed: {e}")
+        raise HTTPException(502, "Foto kon niet worden geladen")
+    return Response(content=data, media_type=p["content_type"], headers={"Cache-Control": "private, max-age=3600"})
+
+
+@api.delete("/workorders/{oid}/photos/{pid}")
+async def delete_photo(oid: str, pid: str, u: dict = Depends(staff_user)):
+    await load_order(oid, u)
+    res = await db.workorders.update_one({"id": oid, "photos.id": pid}, {"$set": {"photos.$.is_deleted": True},
+                                         "$push": {"events": event("Foto verwijderd", u, "photo")}})
+    if not res.matched_count:
+        raise HTTPException(404, "Foto niet gevonden")
     return await get_workorder(oid, u)
 
 
@@ -786,6 +902,10 @@ async def startup():
     await db.workorders.create_index("kenteken")
     await db.login_attempts.create_index("identifier")
     await db.approval_tokens.create_index("token", unique=True)
+    try:
+        await asyncio.to_thread(init_storage)
+    except Exception as e:
+        logger.error(f"Storage init failed: {e}")
     email = os.environ['ADMIN_EMAIL'].lower()
     pw = os.environ['ADMIN_PASSWORD']
     ex = await db.users.find_one({"email": email})
