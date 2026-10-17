@@ -13,7 +13,7 @@ export const Comments = ({ o, setO }) => {
   const [internal, setInternal] = useState(false);
   const send = async () => {
     if (!text.trim()) return;
-    try { const { data } = await api.post(`/workorders/${o.id}/comments`, { text, internal }); setO(data); setText(""); toast.success("Opmerking geplaatst"); } catch (e) { toast.error(errMsg(e)); }
+    try { const { data } = await api.post(`/workorders/${o.id}/comments`, { text, internal }); setO(data); setText(""); setInternal(false); toast.success("Opmerking geplaatst"); } catch (e) { toast.error(errMsg(e)); }
   };
   return (
     <div className="bg-white border border-slate-200 p-6" data-testid="workorder-comments">

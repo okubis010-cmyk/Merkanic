@@ -9,7 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 import { api, fmtDate, fmtDateTime, fmtKm } from "@/lib/api";
 
 const Spec = ({ label, value }) => (
-  <div><div className="text-xs uppercase tracking-wider text-slate-400">{label}</div><div className="font-medium">{value || "-"}</div></div>
+  <div><div className="text-xs uppercase tracking-wider text-slate-400">{label}</div><div className="font-medium break-all">{value || "-"}</div></div>
 );
 
 const Timeline = ({ history }) => (
@@ -59,13 +59,13 @@ export default function VehicleFolderPage() {
         <Spec label="Bouwjaar" value={v.bouwjaar} /><Spec label="Kleur" value={v.kleur} /><Spec label="Brandstof" value={v.brandstof} /><Spec label="APK tot" value={v.apk_vervaldatum} />
         <Spec label="Eigenaar" value={v.owner_name} /><Spec label="E-mail" value={v.owner_email} /><Spec label="Telefoon" value={v.owner_phone} /><Spec label="Laatste km" value={fmtKm(v.last_km)} />
       </div>
-      <div className="grid lg:grid-cols-[1.4fr_1fr] gap-8">
-        <section>
+      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-8">
+        <section className="min-w-0">
           <h2 className="font-display text-lg font-semibold mb-3 flex items-center gap-2"><FileText className="h-4 w-4 text-[#C0474A]" />Orders in deze map</h2>
           <div className="bg-white border border-slate-200">
             {data.orders.length === 0 && <div className="p-6 text-sm text-slate-500">Nog geen orders.</div>}
             {[...data.orders].reverse().map((o) => (
-              <Link key={o.id} to={`/portaal/werkorders/${o.id}`} data-testid={`vehicle-order-item-${o.volgnummer}`} className="flex items-center gap-4 px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors">
+              <Link key={o.id} to={`/portaal/werkorders/${o.id}`} data-testid={`vehicle-order-item-${o.volgnummer}`} className="flex flex-wrap sm:flex-nowrap items-center gap-x-4 gap-y-2 px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors">
                 <div className="font-display font-bold text-2xl text-slate-300 w-10">{String(o.volgnummer).padStart(2, "0")}</div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate">Order {o.volgnummer} · {o.title}</div>
@@ -76,7 +76,7 @@ export default function VehicleFolderPage() {
             ))}
           </div>
         </section>
-        <section>
+        <section className="min-w-0">
           <h2 className="font-display text-lg font-semibold mb-3 flex items-center gap-2"><History className="h-4 w-4 text-[#C0474A]" />Historie van de auto</h2>
           <div className="bg-white border border-slate-200 p-6 max-h-[640px] overflow-y-auto"><Timeline history={data.history} /></div>
         </section>

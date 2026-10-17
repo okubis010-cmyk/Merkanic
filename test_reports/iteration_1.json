@@ -1,0 +1,47 @@
+{
+  "summary": "First full E2E run of the Merkanic workshop/customer portal. Backend: 17 pytest cases (16 pass). Frontend: Playwright flows for beheerder login and dashboard, new werkorder with RDW lookup (GZ-123-X -> Renault Captur 2015 Benzine, APK 21-06-2027), Grote beurt with 18 checklist items, second order Banden wissel -> volgnummer 2 via existing-vehicle-select, vehicle folder page with Order 1/2 and history timeline, detail page (status, monteur, km, checklist toggle, extra task, internal and public comments, logboek), UI registration -> pending card -> 403 'wacht op goedkeuring' -> approved via Gebruikers -> monteur login (no Gebruikers nav, no delete), klant scoping (one car only, no internal comments, 404 on other car/order, staff routes redirect), search and filter chips, and mobile 390px. All core flows work. Found 1 security issue (brute-force lockout not reliable behind ingress), 1 data-integrity bug (duplicate volgnummer after a delete), 1 text bug in the event log and a mobile overflow on the folder page.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/auth/login", "issue": "Brute-force lockout is keyed on request.client.host, which is the internal ingress/proxy IP. That IP alternates between pods (seen in db.login_attempts: 10.232.135.73 and 10.232.131.2), so failed attempts are split across 2 or more counters. The 6th failed attempt still returns 401 instead of 429, and a real client IP is never used. Fix: key on email only, or on X-Forwarded-For (first IP) + email.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/workorders", "issue": "volgnummer = count_documents(kenteken)+1. After an order is deleted, the next order gets a duplicate number. Reproduced: orders [1,2,3], delete 1, create new -> [2,3,3]. There is also a race on concurrent creates. Fix: per-vehicle counter (e.g. $inc on vehicles.order_seq) or max(volgnummer)+1."},
+      {"endpoint": "POST /api/workorders (created event text)", "issue": "f\"Werkorder aangemaakt ({tpl['name']}, {km:,} km)\".replace(',', '.') also replaces the separator comma, so the text becomes 'Werkorder aangemaakt (Grote beurt. 87.500 km)'. Only format the number: f\"{km:,}\".replace(',', '.')."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "VehicleFolderPage (mobile 390px)", "issue": "Horizontal overflow: document scrollWidth is 452px. In the grid 'lg:grid-cols-[1.4fr_1fr]' the <section> items have no min-w-0, so the order rows (truncate + whitespace-nowrap StatusBadge) push the page to 452px and the status badge gets clipped. A long owner e-mail in the specs grid also overflows. Fix: add min-w-0 to both sections (or grid-cols-1 on mobile), and break-all/truncate on the Spec value.", "selector": "[data-testid=vehicle-order-item-1]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Werkorders list (mobile)", "issues": ["Plate in OrderRow stretches to the full card width (316px) because the grid is grid-cols-1. Wrap it in a justify-self-start / w-fit container."]},
+      {"screen": "Nieuwe werkorder", "issues": ["'Geplande datum' uses the browser's native date input, which shows mm/dd/yyyy (US format) in a Dutch app. Use the shadcn Calendar/Popover date picker with nl locale."]},
+      {"screen": "Werkorder detail - Comments", "issues": ["The 'Intern' switch stays on after posting. The next comment is internal by default unless the user notices; consider resetting it after send, or make the state very clear."]},
+      {"screen": "Mobile nav", "issues": ["Horizontally scrolling tab bar cuts off 'Nieuwe werkorder'/'Gebruikers' with no scroll hint (minor)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_merkanic_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Fix login brute-force lockout identifier (do not rely on request.client.host behind ingress; use email or X-Forwarded-For)",
+    "Make werkorder volgnummer unique per kenteken even after deletes (per-vehicle counter / max+1)",
+    "Fix 'Werkorder aangemaakt (Grote beurt. 87.500 km)' text: only replace the thousands separator",
+    "Fix mobile overflow on /portaal/voertuigen/:kenteken (min-w-0 on grid sections, wrap long email)",
+    "Stop the mobile plate in OrderRow from stretching; replace the native date input with the shadcn calendar"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 803 lines; split into routers (auth, users, vehicles, workorders, email)",
+    "POST /api/approve/{token} is unauthenticated by design (one-click email link). Anyone who holds the link can grant the beheerder role. Acceptable for an MVP, but consider a shorter expiry (currently 14 days) or requiring an admin session for the beheerder role",
+    "upsert_vehicle on workorder create silently overwrites owner_email/owner_name of an existing vehicle with whatever the form sends (non-empty), so a staff member can re-link a car to another klant from the new-order form without notice",
+    "WorkorderDetailPage.remove(): api.delete has no try/catch, so errors give an unhandled promise rejection",
+    "Stats/listing endpoints use to_list(2000) with no pagination"
+  ],
+  "updated_files": ["/app/backend/tests/test_merkanic_api.py"],
+  "success_rate": {"backend": "94% (16/17)", "frontend": "95% (all functional flows pass; mobile folder overflow)"},
+  "test_credentials": "Beheerder ori@merkanic.nl / Merkanic1! (from /app/memory/test_credentials.md) works. bcrypt hash starts with $2b$, httpOnly secure cookie set on login, CORS allows credentials with explicit origin, seed_admin re-hashes on password change (code reviewed).",
+  "seed_data_creation": "Created TEST_ users/vehicles/orders during the run and deleted all of them afterwards (users, vehicles GZ123X/TEST01-03, workorders, approval_tokens, login_attempts, counters.workorder reset). Only ori@merkanic.nl remains.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run with: cd /app/backend && REACT_APP_BACKEND_URL=<url> python -m pytest tests/test_merkanic_api.py -n 0 -v (xdist is on by default and breaks the ordered shared-state tests, so -n 0 is required). Tests seed pending users directly in mongo (seed_pending) to avoid sending real emails; set REAL_REGISTER=1 to hit /auth/register. 3 real registration emails were sent in this run (2 API + 1 UI); all returned 202 from the Emergent email API. RDW lookup for GZ-123-X returns Renault Captur.",
+  "rca of the issue": "Lockout: identifier = f'{request.client.host}:{email}'. Behind the k8s ingress, client.host is the proxy pod IP and varies per request, so counts are split. Mitigation: identifier = email (or the X-Forwarded-For first hop + email)."
+}

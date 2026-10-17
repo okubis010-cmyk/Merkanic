@@ -51,7 +51,7 @@ export default function WorkorderDetailPage() {
   };
   const remove = async () => {
     if (!window.confirm("Werkorder definitief verwijderen?")) return;
-    await api.delete(`/workorders/${id}`); toast.success("Verwijderd"); nav(`/portaal/voertuigen/${o.kenteken}`);
+    try { await api.delete(`/workorders/${id}`); toast.success("Verwijderd"); nav(`/portaal/voertuigen/${o.kenteken}`); } catch (e) { toast.error(errMsg(e)); }
   };
   if (err) return <div data-testid="workorder-not-found" className="text-slate-500">{err}</div>;
   if (!o) return <div className="text-slate-500">Laden…</div>;

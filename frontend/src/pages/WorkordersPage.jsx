@@ -19,7 +19,7 @@ const StatCard = ({ label, value, dot, testid }) => (
 
 const OrderRow = ({ o }) => (
   <Link to={`/portaal/werkorders/${o.id}`} data-testid={`workorder-row-${o.number}`} className="grid grid-cols-1 md:grid-cols-[130px_1fr_150px_170px_110px] gap-3 md:items-center px-5 py-4 border-b border-slate-100 hover:bg-slate-50 transition-colors">
-    <Plate kenteken={o.kenteken} />
+    <div className="justify-self-start"><Plate kenteken={o.kenteken} /></div>
     <div className="min-w-0">
       <div className="font-semibold truncate">{o.title} <span className="text-slate-400 font-normal text-sm">· {o.number} · order {o.volgnummer}</span></div>
       <div className="text-sm text-slate-500 truncate">{o.vehicle_label || "Onbekend voertuig"}{o.owner_name ? ` · ${o.owner_name}` : ""} · {fmtKm(o.km_stand)}</div>

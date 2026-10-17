@@ -343,7 +343,7 @@ async def register(body: RegisterIn):
 @api.post("/auth/login")
 async def login(body: LoginIn, request: Request, response: Response):
     email = body.email.lower()
-    ident = f"{request.client.host if request.client else 'x'}:{email}"
+    ident = email
     att = await db.login_attempts.find_one({"identifier": ident})
     if att and att.get("count", 0) >= 5 and att.get("locked_until", "") > now_iso():
         raise HTTPException(429, "Te veel pogingen. Probeer het over 15 minuten opnieuw.")
@@ -651,7 +651,9 @@ async def create_workorder(body: WorkorderIn, u: dict = Depends(staff_user)):
     v = await upsert_vehicle(body.vehicle, u)
     mname = await monteur_name(body.monteur_id or "")
     tpl = TEMPLATES[body.template]
-    volg = await db.workorders.count_documents({"kenteken": v["kenteken"]}) + 1
+    last = await db.workorders.find_one({"kenteken": v["kenteken"]}, {"_id": 0, "volgnummer": 1}, sort=[("volgnummer", -1)])
+    volg = max(await next_seq(f"vehicle:{v['kenteken']}"), (last or {}).get("volgnummer", 0) + 1)
+    await db.counters.update_one({"_id": f"vehicle:{v['kenteken']}"}, {"$max": {"seq": volg}})
     num = await next_seq("workorder")
     items = tpl["checklist"] + [x.strip() for x in body.extra_items if x.strip()]
     order = {
@@ -662,7 +664,7 @@ async def create_workorder(body: WorkorderIn, u: dict = Depends(staff_user)):
         "monteur_id": body.monteur_id or "", "monteur_name": mname, "status": body.status,
         "planned_date": body.planned_date or "",
         "checklist": [{"id": str(uuid.uuid4()), "label": x, "done": False, "note": ""} for x in items],
-        "comments": [], "events": [event(f"Werkorder aangemaakt ({tpl['name']}, {body.km_stand:,} km)".replace(",", "."), u, "created")],
+        "comments": [], "events": [event(f"Werkorder aangemaakt ({tpl['name']}, {body.km_stand:,} km)".replace(f"{body.km_stand:,}", f"{body.km_stand:,}".replace(",", ".")), u, "created")],
         "created_by": u["name"], "created_at": now_iso(), "updated_at": now_iso(),
     }
     if body.opmerking and body.opmerking.strip():
