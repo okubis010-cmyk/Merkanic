@@ -18,7 +18,7 @@ export const VehicleHistoryDialog = ({ kenteken, open, onOpenChange }) => {
   const openOrders = data ? data.orders.filter((o) => !["Gereed", "Afgehaald"].includes(o.status)) : [];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-none max-w-2xl max-h-[88vh] overflow-y-auto" data-testid="vehicle-history-dialog">
+      <DialogContent className="rounded-none w-[calc(100%-1.5rem)] max-w-2xl max-h-[88vh] overflow-y-auto" data-testid="vehicle-history-dialog">
         <DialogHeader>
           <div className="eyebrow">Bekende auto</div>
           <DialogTitle className="font-display text-2xl">Hier hebben we al aan gewerkt.</DialogTitle>

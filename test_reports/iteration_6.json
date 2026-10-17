@@ -1,0 +1,29 @@
+{
+  "summary": "Frontend test of the vehicle-history popup on /portaal/werkorders/nieuw (desktop 1920 + mobile 390). Seeded TESTH1 (2 open orders, one with a comment) and TESTH0 (0 orders) through the API without owner_email. All requested flows pass. Typing a kenteken with or without dashes or in lowercase opens vehicle-history-dialog, which shows the plate, merk/model, owner, last km, history-order-1/2 with title, date, km, monteur and status badge, history-dialog-timeline (events plus comments) and an amber history-open-orders-warning. Choosing a vehicle in existing-vehicle-select opens the popup. history-dialog-continue and Escape both close it. Typing again (append a character, then backspace) does not reopen it. open-history-button reopens it. TESTH0 and a new plate (ZZ999Q) show no popup, both when typed and when selected. ?kenteken=TESTH1 shows the popup and ?kenteken=TESTH0 does not. The 'Nieuwe order' link in folder /portaal/voertuigen/TESTH1 leads to the popup. Creating the workorder after closing the popup works (WO-00015, 'order 3 van deze auto'). On mobile the popup fits inside the 390px viewport, can be scrolled (scrollHeight 957 > clientHeight 741) and the page does not scroll sideways (docW 390). No page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "New workorder - typing a known kenteken", "issues": ["Typing the kenteken of an existing vehicle (instead of choosing it from the dropdown) opens the popup, but the merk/model/owner fields stay empty. The form only prefills on dropdown pick or on ?kenteken= first load. Data is not lost: upsert_vehicle ignores empty fields, so the saved vehicle keeps its values. The user still sees an empty form. Consider prefilling empty fields when `existing` changes (low priority)."]},
+      {"screen": "Vehicle history popup (mobile 390)", "issues": ["The dialog runs almost edge to edge (about 1.4px side margin). A small horizontal margin would look cleaner (cosmetic)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/seed_ui_iter6.py"],
+  "action_items": [
+    "Optional: prefill empty vehicle fields from the existing vehicle when a known kenteken is typed (VehicleSection.jsx effect on existing?.kenteken)."
+  ],
+  "critical_code_review_comments": [
+    "VehicleSection: shownFor stores only the last kenteken. A->B->A would show A's popup again. In testing, TESTH1 -> TESTH0 -> ZZ999Q -> TESTH1 did not reopen, because TESTH0 has 0 orders and ZZ999Q is not a known vehicle, so neither replaced the stored kenteken. Acceptable, but not strictly 'once per kenteken'.",
+    "If one plate is the prefix of another known plate (e.g. AB12 and AB123), the popup opens mid-typing for the shorter plate and takes the focus. Edge case.",
+    "VehicleHistoryDialog: the 'Hier hebben we al aan gewerkt.' title also shows while loading and on errors. Fine.",
+    "The vehicle list is fetched only once on mount, so order_count may be stale if another user creates an order in the meantime. Minor."
+  ],
+  "updated_files": ["/app/backend/tests/seed_ui_iter6.py"],
+  "success_rate": {"backend": "N/A (frontend-only request)", "frontend": "100%"},
+  "test_credentials": "ori@merkanic.nl / Merkanic1! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "TESTH1 (WO-00013 Gepland, WO-00014 In behandeling, plus WO-00015 created through the UI) and TESTH0 created, then all removed. Removed all TEST vehicles/workorders and vehicle:TEST* counters. Workorder counter set back to its pre-test value of 12. S597PJ was not touched. No emails were sent (no owner_email).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use `python /app/backend/tests/seed_ui_iter6.py seed` to seed the history popup data and `... clean [workorder_seq]` to remove it. Check the workorder counter value before seeding and pass it to clean. Popup testids: vehicle-history-dialog, history-order-{volgnummer}, history-dialog-timeline, history-open-orders-warning, history-dialog-continue, open-history-button, existing-vehicle-note."
+}

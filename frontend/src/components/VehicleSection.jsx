@@ -40,6 +40,9 @@ export const VehicleSection = ({ vehicle, setVehicle }) => {
   const [histOpen, setHistOpen] = useState(false);
   const [shownFor, setShownFor] = useState("");
   useEffect(() => {
+    if (existing) {
+      setVehicle((p) => ({ ...p, ...Object.fromEntries(Object.entries(existing).filter(([key, val]) => key in p && key !== "kenteken" && !p[key] && val)) }));
+    }
     if (existing?.order_count > 0 && shownFor !== existing.kenteken) {
       setShownFor(existing.kenteken);
       setHistOpen(true);

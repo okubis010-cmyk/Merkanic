@@ -33,6 +33,7 @@ Beheerder (Ori), Monteur, Klant
 - Email links use request Origin when it is an allowed origin (incl. https://merkanic.nl, https://www.merkanic.nl), else APP_URL; approval page uses relative links
 - APK-herinnering: daily cron 08:00 Europe/Amsterdam (.emergent/crons.yml -> POST /api/cron/apk-reminders, Bearer WEBHOOK_CRON_SECRET, X-Webhook-Id dedupe). Mails owner_email when APK within 30 days (date refreshed from RDW first), once per APK date (atomic claim), retry on failure. Staff panel on Voertuigen page, beheerder "Nu controleren", per-car opt-out switch
 - Email: if SMTP_PASSWORD set, sends via Mijndomein SMTP (mail.mijndomein.nl:465, from info@merkanic.nl), falls back to Emergent managed email on failure
+- Nieuwe werkorder: popup with vehicle history (orders, status, km, monteur, recent events, open-orders warning) when kenteken is a known vehicle with orders; known vehicle data auto-prefilled
 
 ## Backlog
 - P1: Foto's bij werkorders (object storage), facturen, afspraken plannen
