@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, History } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, errMsg } from "@/lib/api";
+import { VehicleHistoryDialog } from "@/components/VehicleHistoryDialog";
 
 const FIELDS = [["merk", "Merk"], ["model", "Model"], ["bouwjaar", "Bouwjaar"], ["brandstof", "Brandstof"], ["kleur", "Kleur"], ["apk_vervaldatum", "APK tot"]];
 const OWNER = [["owner_name", "Naam eigenaar"], ["owner_phone", "Telefoon"], ["owner_email", "E-mail (koppelt klantaccount)"]];
@@ -36,6 +37,14 @@ export const VehicleSection = ({ vehicle, setVehicle }) => {
     setBusy(false);
   };
   const existing = list.find((v) => v.kenteken === norm(vehicle.kenteken));
+  const [histOpen, setHistOpen] = useState(false);
+  const [shownFor, setShownFor] = useState("");
+  useEffect(() => {
+    if (existing?.order_count > 0 && shownFor !== existing.kenteken) {
+      setShownFor(existing.kenteken);
+      setHistOpen(true);
+    }
+  }, [existing?.kenteken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-5">
@@ -59,7 +68,17 @@ export const VehicleSection = ({ vehicle, setVehicle }) => {
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}<span className="ml-1 hidden sm:inline">RDW ophalen</span>
           </Button>
         </div>
-        {existing && <p data-testid="existing-vehicle-note" className="text-xs text-emerald-700 mt-1.5">Bestaande map gevonden — order wordt toegevoegd als order {existing.order_count + 1}.</p>}
+        {existing && (
+          <div data-testid="existing-vehicle-note" className="flex flex-wrap items-center gap-2 text-xs text-emerald-700 mt-1.5">
+            Bestaande map gevonden — order wordt toegevoegd als order {existing.order_count + 1}.
+            {existing.order_count > 0 && (
+              <button type="button" data-testid="open-history-button" onClick={() => setHistOpen(true)} className="inline-flex items-center gap-1 font-semibold text-[#C0474A] hover:underline">
+                <History className="h-3.5 w-3.5" />Bekijk historie ({existing.order_count})
+              </button>
+            )}
+          </div>
+        )}
+        <VehicleHistoryDialog kenteken={existing?.kenteken} open={histOpen} onOpenChange={setHistOpen} />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {FIELDS.map(([k, l]) => (
